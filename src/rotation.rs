@@ -54,7 +54,8 @@ pub fn needs_rotation(
 
 /// Generate a random secret
 pub fn generate_secret(length: usize) -> String {
-    const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*";
+    const CHARSET: &[u8] =
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*";
     let mut rng = rand::thread_rng();
     (0..length)
         .map(|_| {
@@ -106,7 +107,17 @@ pub async fn rotate_secret(
         .context("Failed to write rotated secret")?;
 
     // Update metadata with rotation timestamp
-    let mut metadata = HashMap::new();
+    let mut metadata = match vault.read_metadata(mount, path).await {
+        Ok(existing) => existing.custom_metadata.unwrap_or_default(),
+        Err(e) => {
+            warn!(
+                "Failed to read existing metadata for {}/{}: {}. Proceeding with defaults.",
+                mount, path, e
+            );
+            HashMap::new()
+        }
+    };
+
     metadata.insert(ROTATION_METADATA_KEY.to_string(), "true".to_string());
     metadata.insert(LAST_ROTATED_KEY.to_string(), Utc::now().to_rfc3339());
 
@@ -134,10 +145,7 @@ pub async fn flag_for_rotation(
     let mut metadata = HashMap::new();
     metadata.insert(ROTATION_METADATA_KEY.to_string(), "true".to_string());
     metadata.insert(LAST_ROTATED_KEY.to_string(), Utc::now().to_rfc3339());
-    metadata.insert(
-        ROTATION_PERIOD_KEY.to_string(),
-        period_months.to_string(),
-    );
+    metadata.insert(ROTATION_PERIOD_KEY.to_string(), period_months.to_string());
 
     vault
         .update_metadata(mount, path, metadata)
@@ -158,7 +166,10 @@ pub async fn scan_for_rotation(
     path: &str,
     default_period: u32,
 ) -> Result<Vec<String>> {
-    info!("Scanning for secrets needing rotation in {}/{}", mount, path);
+    info!(
+        "Scanning for secrets needing rotation in {}/{}",
+        mount, path
+    );
 
     let secrets = vault
         .list_secrets(mount, path)

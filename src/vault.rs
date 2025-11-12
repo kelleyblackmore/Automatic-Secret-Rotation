@@ -158,7 +158,11 @@ impl VaultClient {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            anyhow::bail!("Vault metadata request failed with status {}: {}", status, body);
+            anyhow::bail!(
+                "Vault metadata request failed with status {}: {}",
+                status,
+                body
+            );
         }
 
         let vault_response: VaultResponse<SecretMetadata> = response
