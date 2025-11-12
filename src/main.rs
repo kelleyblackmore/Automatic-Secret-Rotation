@@ -142,14 +142,21 @@ async fn main() -> Result<()> {
             rotation::flag_for_rotation(&vault, &config.vault.mount, &path, period)
                 .await
                 .context("Failed to flag secret for rotation")?;
-            println!("Successfully flagged {} for rotation every {} months", path, period);
+            println!(
+                "Successfully flagged {} for rotation every {} months",
+                path, period
+            );
         }
 
         Commands::Scan { path } => {
-            let secrets =
-                rotation::scan_for_rotation(&vault, &config.vault.mount, &path, config.rotation.period_months)
-                    .await
-                    .context("Failed to scan for secrets needing rotation")?;
+            let secrets = rotation::scan_for_rotation(
+                &vault,
+                &config.vault.mount,
+                &path,
+                config.rotation.period_months,
+            )
+            .await
+            .context("Failed to scan for secrets needing rotation")?;
 
             if secrets.is_empty() {
                 println!("No secrets need rotation at this time");
@@ -171,16 +178,22 @@ async fn main() -> Result<()> {
             .await
             .context("Failed to rotate secret")?;
             println!("Successfully rotated secret at: {}", path);
-            eprintln!("⚠️  WARNING: Secret value will be displayed. Ensure this output is secured.");
+            eprintln!(
+                "⚠️  WARNING: Secret value will be displayed. Ensure this output is secured."
+            );
             println!("New secret value: {}", new_secret);
             eprintln!("⚠️  Please update your application with the new secret and clear your terminal history.");
         }
 
         Commands::Auto { path, dry_run } => {
-            let secrets =
-                rotation::scan_for_rotation(&vault, &config.vault.mount, &path, config.rotation.period_months)
-                    .await
-                    .context("Failed to scan for secrets needing rotation")?;
+            let secrets = rotation::scan_for_rotation(
+                &vault,
+                &config.vault.mount,
+                &path,
+                config.rotation.period_months,
+            )
+            .await
+            .context("Failed to scan for secrets needing rotation")?;
 
             if secrets.is_empty() {
                 println!("No secrets need rotation at this time");
@@ -219,7 +232,9 @@ async fn main() -> Result<()> {
                 .read_secret(&config.vault.mount, &path)
                 .await
                 .context("Failed to read secret")?;
-            eprintln!("⚠️  WARNING: Secret values will be displayed. Ensure this output is secured.");
+            eprintln!(
+                "⚠️  WARNING: Secret values will be displayed. Ensure this output is secured."
+            );
             println!("Secret data:");
             for (key, value) in secret.data {
                 println!("  {}: {}", key, value);
@@ -245,4 +260,3 @@ async fn main() -> Result<()> {
 
     Ok(())
 }
-
