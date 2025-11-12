@@ -161,6 +161,12 @@ impl EnvUpdater {
                 continue;
             }
 
+            // Skip commented out lines
+            if trimmed.starts_with('#') {
+                new_content.push_str(line);
+                new_content.push('\n');
+                continue;
+            }
             // Check if this line exports our variable
             if trimmed.starts_with(&export_pattern) || 
                trimmed.starts_with(&format!("{}=", var_name)) {
