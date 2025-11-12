@@ -174,14 +174,9 @@ impl EnvUpdater {
                 continue; // Skip this line
             }
 
-            if skip_next_comment {
-                skip_next_comment = false;
-                new_content.push_str(line);
-                new_content.push('\n');
-            } else {
-                new_content.push_str(line);
-                new_content.push('\n');
-            }
+            skip_next_comment = false;
+            new_content.push_str(line);
+            new_content.push('\n');
         }
 
         fs::write(path, new_content)
