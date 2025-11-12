@@ -1,0 +1,60 @@
+name: Secret Rotation
+
+on:
+  # Run weekly on Sundays at midnight
+  schedule:
+    - cron: '0 0 * * 0'
+  
+  # Allow manual trigger
+  workflow_dispatch:
+
+jobs:
+  rotate-secrets:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Install secret-rotator
+        run: cargo install --path .
+      
+      - name: Scan for secrets needing rotation
+        env:
+          VAULT_ADDR: ${{ secrets.VAULT_ADDR }}
+          VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
+          VAULT_MOUNT: secret
+        run: secret-rotator scan
+      
+      - name: Rotate secrets (dry-run)
+        if: github.event_name == 'pull_request'
+        env:
+          VAULT_ADDR: ${{ secrets.VAULT_ADDR }}
+          VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
+          VAULT_MOUNT: secret
+        run: secret-rotator auto --dry-run
+      
+      - name: Rotate secrets
+        if: github.event_name != 'pull_request'
+        env:
+          VAULT_ADDR: ${{ secrets.VAULT_ADDR }}
+          VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
+          VAULT_MOUNT: secret
+        run: secret-rotator auto

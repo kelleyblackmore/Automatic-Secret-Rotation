@@ -1,0 +1,20 @@
+# Production Configuration Example
+# This shows a more secure production setup
+
+[vault]
+# Production Vault address with TLS
+address = "https://vault.company.com:8200"
+
+# Token should be provided via environment variable
+# This is just a placeholder
+token = "${VAULT_TOKEN}"
+
+# Production mount point
+mount = "secret"
+
+[rotation]
+# Rotate secrets every 3 months for higher security
+period_months = 3
+
+# Longer secrets for production
+secret_length = 64
