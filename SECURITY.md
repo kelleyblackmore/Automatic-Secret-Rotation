@@ -35,8 +35,8 @@ This document summarizes the security considerations and measures implemented in
 **Status**: Intentional Feature with Warnings
 
 The following commands intentionally display secrets in cleartext:
-- `secret-rotator rotate <path>` - Shows newly rotated secret
-- `secret-rotator read <path>` - Shows secret values
+- `asr rotate <path>` - Shows newly rotated secret
+- `asr read <path>` - Shows secret values
 
 **Justification**: 
 - Users need to see rotated secrets to update applications
@@ -115,14 +115,14 @@ All dependencies are from trusted sources (crates.io):
 #### Secure (Automated)
 ```bash
 # CI/CD pipeline - no cleartext output
-secret-rotator auto
+asr auto
 ```
 
 #### Less Secure (Manual)
 ```bash
 # Manual rotation - displays secret
 # Use only in secure terminals
-secret-rotator rotate app/password
+asr rotate app/password
 ```
 
 ### Security Checklist for Users

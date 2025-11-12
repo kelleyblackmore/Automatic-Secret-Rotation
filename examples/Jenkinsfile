@@ -15,7 +15,7 @@ pipeline {
     stages {
         stage('Setup') {
             steps {
-                echo 'Installing secret-rotator...'
+                echo 'Installing asr...'
                 sh 'cargo install --path .'
             }
         }
@@ -23,14 +23,14 @@ pipeline {
         stage('Scan') {
             steps {
                 echo 'Scanning for secrets needing rotation...'
-                sh 'secret-rotator scan'
+                sh 'asr scan'
             }
         }
         
         stage('Rotate') {
             steps {
                 echo 'Rotating secrets...'
-                sh 'secret-rotator auto'
+                sh 'asr auto'
             }
         }
     }

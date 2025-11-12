@@ -1,6 +1,6 @@
 # Usage Guide
 
-This guide provides step-by-step instructions for using the secret-rotator tool.
+This guide provides step-by-step instructions for using the asr tool.
 
 ## Table of Contents
 
@@ -20,7 +20,7 @@ Build from source:
 git clone https://github.com/kelleyblackmore/Automatic-Secret-Rotation.git
 cd Automatic-Secret-Rotation
 cargo build --release
-sudo cp target/release/secret-rotator /usr/local/bin/
+sudo cp target/release/asr /usr/local/bin/
 ```
 
 ### 2. Set Up HashiCorp Vault
@@ -44,7 +44,7 @@ vault secrets enable -version=2 -path=secret kv
 Generate a sample configuration:
 
 ```bash
-secret-rotator init
+asr init
 ```
 
 Edit `rotator-config.toml` with your Vault details.
@@ -57,7 +57,7 @@ Create some test secrets in Vault:
 # Using vault CLI
 vault kv put secret/app/database password=initial-password-123
 
-# Or using secret-rotator
+# Or using asr
 # (Note: write command would need to be added - for now use vault CLI)
 ```
 
@@ -69,14 +69,14 @@ Mark which secrets should be automatically rotated:
 
 ```bash
 # Flag with default 6-month period
-secret-rotator flag app/database
+asr flag app/database
 
 # Flag with custom 3-month period
-secret-rotator flag app/api-key --period 3
+asr flag app/api-key --period 3
 
 # Flag multiple secrets
-secret-rotator flag app/smtp-password --period 6
-secret-rotator flag app/oauth-secret --period 12
+asr flag app/smtp-password --period 6
+asr flag app/oauth-secret --period 12
 ```
 
 ### Step 2: Check Rotation Status
@@ -84,7 +84,7 @@ secret-rotator flag app/oauth-secret --period 12
 See which secrets need rotation:
 
 ```bash
-secret-rotator scan
+asr scan
 ```
 
 Output:
@@ -101,7 +101,7 @@ Secrets needing rotation:
 Rotate a specific secret:
 
 ```bash
-secret-rotator rotate app/database
+asr rotate app/database
 ```
 
 Output:
@@ -116,10 +116,10 @@ Rotate all secrets that are due:
 
 ```bash
 # Dry run first
-secret-rotator auto --dry-run
+asr auto --dry-run
 
 # Perform rotation
-secret-rotator auto
+asr auto
 ```
 
 ## Advanced Usage
@@ -130,10 +130,10 @@ Create different configs for different environments:
 
 ```bash
 # Development
-secret-rotator -c config-dev.toml scan
+asr -c config-dev.toml scan
 
 # Production
-secret-rotator -c config-prod.toml auto
+asr -c config-prod.toml auto
 ```
 
 ### Using Environment Variables
@@ -145,7 +145,7 @@ export VAULT_ADDR="https://vault.company.com:8200"
 export VAULT_TOKEN="hvs.your-token"
 export VAULT_MOUNT="secret"
 
-secret-rotator scan
+asr scan
 ```
 
 ### Override Config with CLI
@@ -153,7 +153,7 @@ secret-rotator scan
 Override specific values:
 
 ```bash
-secret-rotator \
+asr \
   --vault-addr https://vault.company.com:8200 \
   --vault-token hvs.token \
   --vault-mount secret \
@@ -165,7 +165,7 @@ secret-rotator \
 View secret contents:
 
 ```bash
-secret-rotator read app/database
+asr read app/database
 ```
 
 Output:
@@ -180,10 +180,10 @@ List all secrets in a path:
 
 ```bash
 # List root
-secret-rotator list
+asr list
 
 # List specific path
-secret-rotator list app/
+asr list app/
 ```
 
 ## CI/CD Integration
@@ -217,7 +217,7 @@ jobs:
         env:
           VAULT_ADDR: ${{ secrets.VAULT_ADDR }}
           VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
-        run: secret-rotator auto
+        run: asr auto
 ```
 
 ### GitLab CI
@@ -233,7 +233,7 @@ rotate-secrets:
   before_script:
     - cargo install --path .
   script:
-    - secret-rotator auto
+    - asr auto
   variables:
     VAULT_ADDR: $VAULT_ADDR
     VAULT_TOKEN: $VAULT_TOKEN
@@ -257,7 +257,7 @@ pipeline {
         stage('Rotate') {
             steps {
                 sh 'cargo install --path .'
-                sh 'secret-rotator auto'
+                sh 'asr auto'
             }
         }
     }
@@ -272,15 +272,15 @@ You have existing secrets and want to start rotating them:
 
 ```bash
 # 1. Flag all your secrets
-secret-rotator flag app/db-password --period 6
-secret-rotator flag app/api-key --period 3
-secret-rotator flag app/jwt-secret --period 6
+asr flag app/db-password --period 6
+asr flag app/api-key --period 3
+asr flag app/jwt-secret --period 6
 
 # 2. Verify they're flagged
-secret-rotator scan
+asr scan
 
 # 3. Initial rotation (if needed)
-secret-rotator rotate app/db-password
+asr rotate app/db-password
 
 # 4. Set up automation (GitHub Actions, etc.)
 ```
@@ -295,11 +295,11 @@ Weekly automated rotation check:
 
 # Check what needs rotation
 echo "Checking for secrets needing rotation..."
-secret-rotator scan
+asr scan
 
 # Rotate if needed
 echo "Performing automatic rotation..."
-secret-rotator auto
+asr auto
 ```
 
 ### Scenario 3: Emergency Rotation
@@ -308,13 +308,13 @@ A secret was compromised and needs immediate rotation:
 
 ```bash
 # Rotate immediately
-secret-rotator rotate app/compromised-secret
+asr rotate app/compromised-secret
 
 # Update the secret in your application
 # (Application-specific steps)
 
 # Verify rotation
-secret-rotator read app/compromised-secret
+asr read app/compromised-secret
 ```
 
 ### Scenario 4: Bulk Flagging
@@ -323,11 +323,11 @@ Flag all secrets in a namespace:
 
 ```bash
 # List all secrets
-secret-rotator list app/
+asr list app/
 
 # Flag them (you'll need to do this for each)
 for secret in $(vault kv list -format=json secret/metadata/app/ | jq -r '.[]'); do
-  secret-rotator flag "app/${secret}" --period 6
+  asr flag "app/${secret}" --period 6
 done
 ```
 
@@ -337,15 +337,15 @@ Different types of secrets need different rotation periods:
 
 ```bash
 # Critical secrets: 1 month
-secret-rotator flag critical/root-password --period 1
-secret-rotator flag critical/master-key --period 1
+asr flag critical/root-password --period 1
+asr flag critical/master-key --period 1
 
 # Normal secrets: 6 months
-secret-rotator flag app/db-password --period 6
-secret-rotator flag app/api-key --period 6
+asr flag app/db-password --period 6
+asr flag app/api-key --period 6
 
 # Low-priority secrets: 12 months
-secret-rotator flag dev/test-token --period 12
+asr flag dev/test-token --period 12
 ```
 
 ### Scenario 6: Testing Before Production
@@ -354,10 +354,10 @@ Test rotation with dry-run:
 
 ```bash
 # See what would be rotated
-secret-rotator auto --dry-run
+asr auto --dry-run
 
 # If looks good, proceed
-secret-rotator auto
+asr auto
 ```
 
 ## Troubleshooting
@@ -391,7 +391,7 @@ vault token capabilities secret/data/app/database
 **Solution:**
 ```bash
 # List secrets to find the correct path
-secret-rotator list
+asr list
 
 # Or use vault CLI
 vault kv list secret/

@@ -14,10 +14,10 @@ rotate-secrets:
   
   script:
     # First scan to see what needs rotation
-    - secret-rotator scan
+    - asr scan
     
     # Perform automatic rotation
-    - secret-rotator auto
+    - asr auto
   
   variables:
     VAULT_ADDR: $VAULT_ADDR

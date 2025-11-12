@@ -33,7 +33,7 @@ jobs:
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       
-      - name: Install secret-rotator
+      - name: Install asr
         run: cargo install --path .
       
       - name: Scan for secrets needing rotation
@@ -41,7 +41,7 @@ jobs:
           VAULT_ADDR: ${{ secrets.VAULT_ADDR }}
           VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
           VAULT_MOUNT: secret
-        run: secret-rotator scan
+        run: asr scan
       
       - name: Rotate secrets (dry-run)
         if: github.event_name == 'pull_request'
@@ -49,7 +49,7 @@ jobs:
           VAULT_ADDR: ${{ secrets.VAULT_ADDR }}
           VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
           VAULT_MOUNT: secret
-        run: secret-rotator auto --dry-run
+        run: asr auto --dry-run
       
       - name: Rotate secrets
         if: github.event_name != 'pull_request'
@@ -57,4 +57,4 @@ jobs:
           VAULT_ADDR: ${{ secrets.VAULT_ADDR }}
           VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
           VAULT_MOUNT: secret
-        run: secret-rotator auto
+        run: asr auto

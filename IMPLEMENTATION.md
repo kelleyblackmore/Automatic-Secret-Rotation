@@ -78,29 +78,29 @@ cargo install --path .
 ### Build Binary
 ```bash
 cargo build --release
-# Binary: target/release/secret-rotator
+# Binary: target/release/asr
 ```
 
 ## Usage Examples
 
 ### Flag a secret for rotation
 ```bash
-secret-rotator flag app/database-password --period 6
+asr flag app/database-password --period 6
 ```
 
 ### Scan for secrets needing rotation
 ```bash
-secret-rotator scan
+asr scan
 ```
 
 ### Automatic rotation
 ```bash
-secret-rotator auto
+asr auto
 ```
 
 ### Dry run
 ```bash
-secret-rotator auto --dry-run
+asr auto --dry-run
 ```
 
 ## CI/CD Integration
@@ -111,13 +111,13 @@ secret-rotator auto --dry-run
   env:
     VAULT_ADDR: ${{ secrets.VAULT_ADDR }}
     VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
-  run: secret-rotator auto
+  run: asr auto
 ```
 
 ### GitLab CI
 ```yaml
 script:
-  - secret-rotator auto
+  - asr auto
 variables:
   VAULT_ADDR: $VAULT_ADDR
   VAULT_TOKEN: $VAULT_TOKEN
@@ -125,7 +125,7 @@ variables:
 
 ### Jenkins
 ```groovy
-sh 'secret-rotator auto'
+sh 'asr auto'
 ```
 
 ## Security Features

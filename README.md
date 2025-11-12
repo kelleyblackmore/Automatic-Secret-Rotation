@@ -24,7 +24,7 @@ cargo install --path .
 
 ```bash
 cargo build --release
-# Binary will be in target/release/secret-rotator
+# Binary will be in target/release/asr
 ```
 
 ## Quick Start
@@ -34,7 +34,7 @@ cargo build --release
 Create a sample configuration file:
 
 ```bash
-secret-rotator init -o rotator-config.toml
+asr init -o rotator-config.toml
 ```
 
 Edit the configuration with your Vault details:
@@ -55,7 +55,7 @@ secret_length = 32
 Flag a secret to be rotated every 6 months:
 
 ```bash
-secret-rotator flag my-app/database-password --period 6
+asr flag my-app/database-password --period 6
 ```
 
 ### 3. Scan for Secrets Needing Rotation
@@ -63,7 +63,7 @@ secret-rotator flag my-app/database-password --period 6
 Check which secrets are due for rotation:
 
 ```bash
-secret-rotator scan
+asr scan
 ```
 
 ### 4. Rotate Secrets Automatically
@@ -71,13 +71,13 @@ secret-rotator scan
 Rotate all secrets that are due:
 
 ```bash
-secret-rotator auto
+asr auto
 ```
 
 Or perform a dry-run first:
 
 ```bash
-secret-rotator auto --dry-run
+asr auto --dry-run
 ```
 
 ## Usage
@@ -104,7 +104,7 @@ secret_length = 32
 Use it with:
 
 ```bash
-secret-rotator -c rotator-config.toml <command>
+asr -c rotator-config.toml <command>
 ```
 
 #### 2. Environment Variables
@@ -116,7 +116,7 @@ export VAULT_MOUNT="secret"
 export ROTATION_PERIOD_MONTHS=6
 export SECRET_LENGTH=32
 
-secret-rotator <command>
+asr <command>
 ```
 
 ### Commands
@@ -126,8 +126,8 @@ secret-rotator <command>
 Create a sample configuration file:
 
 ```bash
-secret-rotator init
-secret-rotator init -o custom-config.toml
+asr init
+asr init -o custom-config.toml
 ```
 
 #### `flag` - Flag Secret for Rotation
@@ -136,10 +136,10 @@ Mark a secret for automatic rotation:
 
 ```bash
 # Use default 6-month period
-secret-rotator flag app/db-password
+asr flag app/db-password
 
 # Custom rotation period
-secret-rotator flag app/api-key --period 3
+asr flag app/api-key --period 3
 ```
 
 #### `scan` - Scan for Secrets Needing Rotation
@@ -148,10 +148,10 @@ List all secrets that need rotation:
 
 ```bash
 # Scan all secrets
-secret-rotator scan
+asr scan
 
 # Scan specific path
-secret-rotator scan app/
+asr scan app/
 ```
 
 #### `rotate` - Rotate a Specific Secret
@@ -159,7 +159,7 @@ secret-rotator scan app/
 Manually rotate a specific secret:
 
 ```bash
-secret-rotator rotate app/db-password
+asr rotate app/db-password
 ```
 
 #### `auto` - Automatic Rotation
@@ -168,13 +168,13 @@ Rotate all secrets that are due for rotation:
 
 ```bash
 # Perform rotation
-secret-rotator auto
+asr auto
 
 # Dry run (show what would be rotated)
-secret-rotator auto --dry-run
+asr auto --dry-run
 
 # Scan specific path
-secret-rotator auto app/
+asr auto app/
 ```
 
 #### `read` - Read a Secret
@@ -182,7 +182,7 @@ secret-rotator auto app/
 Read and display a secret:
 
 ```bash
-secret-rotator read app/db-password
+asr read app/db-password
 ```
 
 #### `list` - List Secrets
@@ -190,8 +190,8 @@ secret-rotator read app/db-password
 List all secrets at a path:
 
 ```bash
-secret-rotator list
-secret-rotator list app/
+asr list
+asr list app/
 ```
 
 ## CI/CD Integration
@@ -216,7 +216,7 @@ jobs:
         with:
           toolchain: stable
       
-      - name: Install secret-rotator
+      - name: Install asr
         run: cargo install --path .
       
       - name: Rotate secrets
@@ -224,7 +224,7 @@ jobs:
           VAULT_ADDR: ${{ secrets.VAULT_ADDR }}
           VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
           VAULT_MOUNT: secret
-        run: secret-rotator auto
+        run: asr auto
 ```
 
 ### GitLab CI
@@ -234,7 +234,7 @@ rotate-secrets:
   image: rust:latest
   script:
     - cargo install --path .
-    - secret-rotator auto
+    - asr auto
   variables:
     VAULT_ADDR: $VAULT_ADDR
     VAULT_TOKEN: $VAULT_TOKEN
@@ -268,7 +268,7 @@ pipeline {
         
         stage('Rotate Secrets') {
             steps {
-                sh 'secret-rotator auto'
+                sh 'asr auto'
             }
         }
     }

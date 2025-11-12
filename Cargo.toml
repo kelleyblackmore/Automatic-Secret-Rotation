@@ -7,7 +7,7 @@ description = "Automatic secret rotation tool with HashiCorp Vault integration"
 license = "MIT"
 
 [[bin]]
-name = "secret-rotator"
+name = "asr"
 path = "src/main.rs"
 
 [dependencies]

@@ -11,7 +11,7 @@ use tracing_subscriber::EnvFilter;
 use vault::VaultClient;
 
 #[derive(Parser)]
-#[command(name = "secret-rotator")]
+#[command(name = "asr")]
 #[command(about = "Automatic secret rotation tool with HashiCorp Vault integration", long_about = None)]
 #[command(version)]
 struct Cli {
