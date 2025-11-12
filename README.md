@@ -384,7 +384,7 @@ cargo run -- --help
 
 ## License
 
-MIT License - see LICENSE file for details
+Apache License - see LICENSE file for details
 
 ## Contributing
 
