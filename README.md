@@ -11,20 +11,70 @@ A Rust-based CLI tool for automatic secret rotation with HashiCorp Vault integra
 - 🔍 **Scanning**: Scan vault paths to identify secrets needing rotation
 - 📝 **Metadata Tracking**: Uses Vault metadata to track rotation status and schedules
 - 🎯 **Flexible Configuration**: Configure via file or environment variables
+- 🔑 **Password Generation**: Generate secure random passwords and store them in Vault
+- 💻 **Environment Variable Sync**: Automatically update local shell config files with rotated secrets
+- ⚡ **Auto-Update Workflow**: Rotate secrets and update environment variables in one command
 
 ## Installation
+
+### Prerequisites
+
+- Rust 1.70+ (will be auto-installed by the installer script)
+- HashiCorp Vault server (or use Docker for local development)
+
+### Quick Install (Recommended)
+
+Install with a single command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kelleyblackmore/Automatic-Secret-Rotation/main/install.sh | bash
+```
+
+This will:
+1. Install Rust (if not already installed)
+2. Clone the repository
+3. Build and install `asr` to `~/.local/bin/asr`
+4. Verify the installation
+
+After installation, you may need to add `~/.local/bin` to your PATH:
+
+```bash
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+```
 
 ### From Source
 
 ```bash
-cargo install --path .
+git clone https://github.com/kelleyblackmore/Automatic-Secret-Rotation.git
+cd Automatic-Secret-Rotation
+make install
 ```
 
 ### Build Binary
 
 ```bash
-cargo build --release
+make build        # Debug build
+make release      # Release build
 # Binary will be in target/release/asr
+```
+
+### Using Cargo
+
+```bash
+cargo install --git https://github.com/kelleyblackmore/Automatic-Secret-Rotation
+```
+
+### Local Development
+
+The project includes a Makefile with helpful commands:
+
+```bash
+make help              # Show all available commands
+make vault-docker      # Start Vault in Docker for testing
+make vault-full-setup  # Start Vault with test secrets
+make test              # Run tests
+make all               # Format, lint, test, and build
 ```
 
 ## Quick Start
@@ -74,10 +124,54 @@ Rotate all secrets that are due:
 asr auto
 ```
 
-Or perform a dry-run first:
+Or with automatic environment variable updates:
+
+```bash
+asr auto --update-env
+```
+
+Perform a dry-run first:
 
 ```bash
 asr auto --dry-run
+```
+
+## Password Management
+
+### Generate New Password
+
+Generate a secure password, store it in Vault, and optionally update your local environment:
+
+```bash
+# Generate and store in Vault only
+asr gen-password myapp/database
+
+# Generate, store, AND update local environment variable
+asr gen-password --env-var DB_PASSWORD myapp/database
+
+# Custom length
+asr gen-password --env-var API_KEY --length 48 myapp/api
+
+# Custom key name in Vault (default is "password")
+asr gen-password --env-var TOKEN --key token myapp/github
+```
+
+### Sync Vault Secret to Environment Variable
+
+Update your local shell config with an existing Vault secret:
+
+```bash
+# Sync secret to environment variable
+asr update-env --env-var DB_PASSWORD myapp/database
+
+# Sync with custom key
+asr update-env --env-var API_TOKEN --key token myapp/github
+```
+
+After updating environment variables:
+```bash
+source ~/.bashrc  # or ~/.zshrc
+echo $DB_PASSWORD  # Verify it's set
 ```
 
 ## Usage
@@ -175,6 +269,49 @@ asr auto --dry-run
 
 # Scan specific path
 asr auto app/
+
+# Rotate and update environment variables
+asr auto --update-env
+```
+
+When using `--update-env`, environment variables are automatically created based on the secret path:
+- `myapp/database` → `MYAPP_DATABASE`
+- `api/github` → `API_GITHUB`
+
+#### `gen-password` - Generate New Password
+
+Generate a secure random password and store it in Vault:
+
+```bash
+# Generate and store in Vault
+asr gen-password myapp/database
+
+# Generate and update local environment variable
+asr gen-password --env-var DB_PASSWORD myapp/database
+
+# Custom length (default: 32 characters)
+asr gen-password --length 48 myapp/api-key
+
+# Custom key name (default: "password")
+asr gen-password --key token --env-var API_TOKEN myapp/github
+```
+
+#### `update-env` - Sync Vault Secret to Environment
+
+Update local environment variables with secrets from Vault:
+
+```bash
+# Update environment variable from Vault
+asr update-env --env-var DB_PASSWORD myapp/database
+
+# Use custom key from secret
+asr update-env --env-var API_TOKEN --key token myapp/github
+```
+
+This command updates your shell configuration files (`.bashrc`, `.bash_profile`, `.zshrc`, `.profile`) with the secret value. You'll need to reload your shell for changes to take effect:
+
+```bash
+source ~/.bashrc
 ```
 
 #### `read` - Read a Secret
@@ -291,6 +428,7 @@ The tool uses Vault's custom metadata feature to track rotation status:
 2. **Scanning**: The tool reads metadata to identify secrets needing rotation
 3. **Rotation**: New random secrets are generated and written to Vault
 4. **Tracking**: Metadata is updated with the new rotation timestamp
+5. **Environment Sync** (optional): Local shell configs are updated with new values
 
 ### Secret Generation
 
@@ -299,6 +437,17 @@ Secrets are generated using cryptographically secure random number generation wi
 - Lowercase letters (a-z)
 - Numbers (0-9)
 - Special characters (!@#$%^&*)
+
+### Environment Variable Management
+
+The tool can automatically update your shell configuration files with rotated secrets:
+
+1. **Shell Config Files**: Updates `.bashrc`, `.bash_profile`, `.zshrc`, and `.profile`
+2. **Smart Updates**: If a variable already exists, it's updated in-place; otherwise, it's appended
+3. **Comments**: Adds `# Auto-updated by secret rotator` for tracking
+4. **Path Mapping**: Converts Vault paths to environment variable names (e.g., `myapp/database` → `MYAPP_DATABASE`)
+
+This enables seamless integration of Vault-managed secrets with applications that read from environment variables.
 
 ## Security Considerations
 
@@ -385,6 +534,41 @@ cargo run -- --help
 ## License
 
 Apache License - see LICENSE file for details
+
+## Quick Reference
+
+### Common Commands
+
+```bash
+# Generate password with env var update
+asr gen-password --env-var DB_PASS myapp/db
+
+# Sync Vault secret to environment
+asr update-env --env-var API_KEY myapp/api
+
+# Rotate all due secrets and update env vars
+asr auto --update-env
+
+# Flag secret for rotation
+asr flag myapp/password --period 3
+
+# Scan for secrets needing rotation
+asr scan
+
+# Dry run auto-rotation
+asr auto --dry-run
+```
+
+### Makefile Commands
+
+```bash
+make install              # Install the binary
+make vault-docker         # Start Vault in Docker
+make vault-full-setup     # Start Vault with test data
+make demo                 # Quick demo with Vault
+make test                 # Run tests
+make all                  # Format, lint, test, build
+```
 
 ## Contributing
 

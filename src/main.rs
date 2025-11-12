@@ -1,4 +1,5 @@
 mod config;
+mod env_updater;
 mod rotation;
 mod vault;
 
@@ -76,6 +77,10 @@ enum Commands {
         /// Dry run - only show what would be rotated
         #[arg(long)]
         dry_run: bool,
+
+        /// Also update local environment variables (expects env var name to match secret path)
+        #[arg(long)]
+        update_env: bool,
     },
 
     /// Read a secret from Vault
@@ -89,6 +94,38 @@ enum Commands {
         /// Path to list secrets from
         #[arg(default_value = "")]
         path: String,
+    },
+
+    /// Update a local environment variable with a secret from Vault
+    UpdateEnv {
+        /// Path to the secret in Vault
+        vault_path: String,
+
+        /// Key within the secret data
+        #[arg(short, long, default_value = "password")]
+        key: String,
+
+        /// Environment variable name to update
+        #[arg(short, long)]
+        env_var: String,
+    },
+
+    /// Generate a new password, store it in Vault, and update local environment variable
+    GenPassword {
+        /// Path to store the secret in Vault
+        vault_path: String,
+
+        /// Key name for the password in Vault
+        #[arg(short, long, default_value = "password")]
+        key: String,
+
+        /// Environment variable name to update (optional)
+        #[arg(short, long)]
+        env_var: Option<String>,
+
+        /// Length of the generated password
+        #[arg(short, long)]
+        length: Option<usize>,
     },
 }
 
@@ -185,7 +222,7 @@ async fn main() -> Result<()> {
             eprintln!("⚠️  Please update your application with the new secret and clear your terminal history.");
         }
 
-        Commands::Auto { path, dry_run } => {
+        Commands::Auto { path, dry_run, update_env } => {
             let secrets = rotation::scan_for_rotation(
                 &vault,
                 &config.vault.mount,
@@ -202,9 +239,18 @@ async fn main() -> Result<()> {
 
             println!("Found {} secret(s) needing rotation", secrets.len());
 
+            let env_updater = if update_env {
+                Some(env_updater::EnvUpdater::new().context("Failed to create EnvUpdater")?)
+            } else {
+                None
+            };
+
             for secret_path in &secrets {
                 if dry_run {
                     println!("[DRY RUN] Would rotate: {}", secret_path);
+                    if update_env {
+                        println!("  [DRY RUN] Would update env var based on path");
+                    }
                 } else {
                     match rotation::rotate_secret(
                         &vault,
@@ -214,7 +260,22 @@ async fn main() -> Result<()> {
                     )
                     .await
                     {
-                        Ok(_) => println!("✓ Rotated: {}", secret_path),
+                        Ok(new_value) => {
+                            println!("✓ Rotated: {}", secret_path);
+                            
+                            // Update environment variable if requested
+                            if let Some(ref updater) = env_updater {
+                                // Convert path to env var name: myapp/database -> MYAPP_DATABASE
+                                let env_var_name = secret_path
+                                    .replace('/', "_")
+                                    .to_uppercase();
+                                
+                                match updater.update_env_var(&env_var_name, &new_value) {
+                                    Ok(_) => println!("  ✓ Updated env var: {}", env_var_name),
+                                    Err(e) => eprintln!("  ✗ Failed to update env var {}: {}", env_var_name, e),
+                                }
+                            }
+                        }
                         Err(e) => {
                             error!("✗ Failed to rotate {}: {}", secret_path, e);
                         }
@@ -224,6 +285,9 @@ async fn main() -> Result<()> {
 
             if !dry_run {
                 println!("\nRotation complete!");
+                if update_env {
+                    println!("⚠️  Note: Reload your shell or run 'source ~/.bashrc' for env var changes to take effect");
+                }
             }
         }
 
@@ -254,6 +318,77 @@ async fn main() -> Result<()> {
                 for secret in secrets {
                     println!("  - {}", secret);
                 }
+            }
+        }
+
+        Commands::UpdateEnv {
+            vault_path,
+            key,
+            env_var,
+        } => {
+            // Read the secret from Vault
+            let secret = vault
+                .read_secret(&config.vault.mount, &vault_path)
+                .await
+                .context("Failed to read secret from Vault")?;
+
+            // Get the specific key value
+            let value = secret
+                .data
+                .get(&key)
+                .with_context(|| format!("Key '{}' not found in secret", key))?;
+
+            // Update the environment variable
+            let env_updater = env_updater::EnvUpdater::new()
+                .context("Failed to create EnvUpdater")?;
+
+            env_updater
+                .update_env_var(&env_var, value)
+                .with_context(|| format!("Failed to update environment variable {}", env_var))?;
+
+            println!("✓ Updated environment variable '{}' in shell config files", env_var);
+            println!("  Value synced from Vault: {}/{} (key: {})", config.vault.mount, vault_path, key);
+            println!("\n⚠️  Note: You need to reload your shell or run 'source ~/.bashrc' (or ~/.zshrc) for changes to take effect");
+        }
+
+        Commands::GenPassword {
+            vault_path,
+            key,
+            env_var,
+            length,
+        } => {
+            // Generate a new password
+            let password_length = length.unwrap_or(config.rotation.secret_length);
+            let new_password = rotation::generate_secret(password_length);
+
+            // Prepare secret data
+            let mut secret_data = std::collections::HashMap::new();
+            secret_data.insert(key.clone(), new_password.clone());
+
+            // Store in Vault
+            vault
+                .write_secret(&config.vault.mount, &vault_path, secret_data)
+                .await
+                .context("Failed to write secret to Vault")?;
+
+            println!("✓ Generated new password and stored in Vault");
+            println!("  Location: {}/{}", config.vault.mount, vault_path);
+            println!("  Key: {}", key);
+            println!("  Length: {} characters", password_length);
+
+            // Update local environment variable if specified
+            if let Some(env_var_name) = env_var {
+                let env_updater = env_updater::EnvUpdater::new()
+                    .context("Failed to create EnvUpdater")?;
+
+                env_updater
+                    .update_env_var(&env_var_name, &new_password)
+                    .with_context(|| format!("Failed to update environment variable {}", env_var_name))?;
+
+                println!("✓ Updated environment variable '{}' in shell config files", env_var_name);
+                println!("\n⚠️  Note: You need to reload your shell or run 'source ~/.bashrc' (or ~/.zshrc) for changes to take effect");
+            } else {
+                println!("\n💡 Tip: Use --env-var to automatically update a local environment variable");
             }
         }
     }
