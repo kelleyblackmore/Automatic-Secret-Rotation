@@ -1,0 +1,29 @@
+[package]
+name = "secret-rotator"
+version = "0.1.0"
+edition = "2021"
+authors = ["Kelley Blackmore"]
+description = "Automatic secret rotation tool with HashiCorp Vault integration"
+license = "MIT"
+
+[[bin]]
+name = "asr"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive", "env"] }
+tokio = { version = "1.40", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+reqwest = { version = "0.12", features = ["json"] }
+anyhow = "1.0"
+thiserror = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rand = "0.8"
+
+[dev-dependencies]
+mockito = "1.5"
+tempfile = "3.12"

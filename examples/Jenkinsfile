@@ -1,0 +1,47 @@
+pipeline {
+    agent any
+    
+    // Run weekly on Sundays at midnight
+    triggers {
+        cron('0 0 * * 0')
+    }
+    
+    environment {
+        VAULT_ADDR = credentials('vault-addr')
+        VAULT_TOKEN = credentials('vault-token')
+        VAULT_MOUNT = 'secret'
+    }
+    
+    stages {
+        stage('Setup') {
+            steps {
+                echo 'Installing asr...'
+                sh 'cargo install --path .'
+            }
+        }
+        
+        stage('Scan') {
+            steps {
+                echo 'Scanning for secrets needing rotation...'
+                sh 'asr scan'
+            }
+        }
+        
+        stage('Rotate') {
+            steps {
+                echo 'Rotating secrets...'
+                sh 'asr auto'
+            }
+        }
+    }
+    
+    post {
+        success {
+            echo 'Secret rotation completed successfully'
+        }
+        failure {
+            echo 'Secret rotation failed'
+            // Add notification logic here
+        }
+    }
+}

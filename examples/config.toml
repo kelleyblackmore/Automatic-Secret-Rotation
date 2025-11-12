@@ -1,0 +1,19 @@
+# Example Configuration for Secret Rotator
+
+[vault]
+# Vault server address
+address = "http://127.0.0.1:8200"
+
+# Vault token with permissions to read/write secrets and metadata
+# In production, use environment variables or secure secret management
+token = "hvs.your-vault-token-here"
+
+# KV v2 mount point in Vault
+mount = "secret"
+
+[rotation]
+# Default rotation period in months
+period_months = 6
+
+# Length of generated secrets (characters)
+secret_length = 32

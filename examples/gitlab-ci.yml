@@ -1,0 +1,29 @@
+rotate-secrets:
+  stage: maintenance
+  image: rust:latest
+  
+  # Run weekly
+  only:
+    - schedules
+  
+  # Can also be triggered manually
+  when: manual
+  
+  before_script:
+    - cargo install --path .
+  
+  script:
+    # First scan to see what needs rotation
+    - asr scan
+    
+    # Perform automatic rotation
+    - asr auto
+  
+  variables:
+    VAULT_ADDR: $VAULT_ADDR
+    VAULT_TOKEN: $VAULT_TOKEN
+    VAULT_MOUNT: secret
+  
+  # Only run on main branch
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
