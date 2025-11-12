@@ -307,6 +307,12 @@ Secrets are generated using cryptographically secure random number generation wi
 - **Permissions**: Ensure the Vault token has appropriate policies for reading, writing, and updating metadata
 - **Audit**: Enable Vault audit logging to track all secret operations
 - **Backup**: Ensure secrets are backed up before rotation
+- **Terminal Output**: The `rotate` and `read` commands intentionally display secret values. Always:
+  - Use these commands in secure environments only
+  - Clear your terminal history after viewing secrets
+  - Avoid logging command output that contains secrets
+  - Use the `auto` command for automated rotation (doesn't display secrets)
+  - Never redirect output containing secrets to files unless properly secured
 
 ## Vault Setup
 

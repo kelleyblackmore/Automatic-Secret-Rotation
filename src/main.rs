@@ -171,7 +171,9 @@ async fn main() -> Result<()> {
             .await
             .context("Failed to rotate secret")?;
             println!("Successfully rotated secret at: {}", path);
+            eprintln!("⚠️  WARNING: Secret value will be displayed. Ensure this output is secured.");
             println!("New secret value: {}", new_secret);
+            eprintln!("⚠️  Please update your application with the new secret and clear your terminal history.");
         }
 
         Commands::Auto { path, dry_run } => {
@@ -217,10 +219,12 @@ async fn main() -> Result<()> {
                 .read_secret(&config.vault.mount, &path)
                 .await
                 .context("Failed to read secret")?;
+            eprintln!("⚠️  WARNING: Secret values will be displayed. Ensure this output is secured.");
             println!("Secret data:");
             for (key, value) in secret.data {
                 println!("  {}: {}", key, value);
             }
+            eprintln!("⚠️  Please clear your terminal history after viewing.");
         }
 
         Commands::List { path } => {
