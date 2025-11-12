@@ -150,14 +150,12 @@ impl EnvUpdater {
 
         let export_pattern = format!("export {}=", var_name);
         let mut new_content = String::new();
-        let mut skip_next_comment = false;
 
         for line in content.lines() {
             let trimmed = line.trim();
             
             // Skip the auto-update comment if we're about to remove a variable
             if trimmed == "# Auto-updated by secret rotator" {
-                skip_next_comment = true;
                 continue;
             }
 
@@ -170,11 +168,9 @@ impl EnvUpdater {
             // Check if this line exports our variable
             if trimmed.starts_with(&export_pattern) || 
                trimmed.starts_with(&format!("{}=", var_name)) {
-                skip_next_comment = false;
                 continue; // Skip this line
             }
 
-            skip_next_comment = false;
             new_content.push_str(line);
             new_content.push('\n');
         }
