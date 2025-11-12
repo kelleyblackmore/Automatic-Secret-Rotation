@@ -77,6 +77,10 @@ enum Commands {
         /// Dry run - only show what would be rotated
         #[arg(long)]
         dry_run: bool,
+
+        /// Also update local environment variables (expects env var name to match secret path)
+        #[arg(long)]
+        update_env: bool,
     },
 
     /// Read a secret from Vault
@@ -218,7 +222,7 @@ async fn main() -> Result<()> {
             eprintln!("⚠️  Please update your application with the new secret and clear your terminal history.");
         }
 
-        Commands::Auto { path, dry_run } => {
+        Commands::Auto { path, dry_run, update_env } => {
             let secrets = rotation::scan_for_rotation(
                 &vault,
                 &config.vault.mount,
@@ -235,9 +239,18 @@ async fn main() -> Result<()> {
 
             println!("Found {} secret(s) needing rotation", secrets.len());
 
+            let env_updater = if update_env {
+                Some(env_updater::EnvUpdater::new().context("Failed to create EnvUpdater")?)
+            } else {
+                None
+            };
+
             for secret_path in &secrets {
                 if dry_run {
                     println!("[DRY RUN] Would rotate: {}", secret_path);
+                    if update_env {
+                        println!("  [DRY RUN] Would update env var based on path");
+                    }
                 } else {
                     match rotation::rotate_secret(
                         &vault,
@@ -247,7 +260,22 @@ async fn main() -> Result<()> {
                     )
                     .await
                     {
-                        Ok(_) => println!("✓ Rotated: {}", secret_path),
+                        Ok(new_value) => {
+                            println!("✓ Rotated: {}", secret_path);
+                            
+                            // Update environment variable if requested
+                            if let Some(ref updater) = env_updater {
+                                // Convert path to env var name: myapp/database -> MYAPP_DATABASE
+                                let env_var_name = secret_path
+                                    .replace('/', "_")
+                                    .to_uppercase();
+                                
+                                match updater.update_env_var(&env_var_name, &new_value) {
+                                    Ok(_) => println!("  ✓ Updated env var: {}", env_var_name),
+                                    Err(e) => eprintln!("  ✗ Failed to update env var {}: {}", env_var_name, e),
+                                }
+                            }
+                        }
                         Err(e) => {
                             error!("✗ Failed to rotate {}: {}", secret_path, e);
                         }
@@ -257,6 +285,9 @@ async fn main() -> Result<()> {
 
             if !dry_run {
                 println!("\nRotation complete!");
+                if update_env {
+                    println!("⚠️  Note: Reload your shell or run 'source ~/.bashrc' for env var changes to take effect");
+                }
             }
         }
 

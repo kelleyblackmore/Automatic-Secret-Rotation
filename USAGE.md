@@ -14,13 +14,27 @@ This guide provides step-by-step instructions for using the asr tool.
 
 ### 1. Install the Tool
 
-Build from source:
+**Quick install (recommended):**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kelleyblackmore/Automatic-Secret-Rotation/main/install.sh | bash
+```
+
+**Or build from source:**
 
 ```bash
 git clone https://github.com/kelleyblackmore/Automatic-Secret-Rotation.git
 cd Automatic-Secret-Rotation
 cargo build --release
 sudo cp target/release/asr /usr/local/bin/
+```
+
+**Or use the Makefile:**
+
+```bash
+git clone https://github.com/kelleyblackmore/Automatic-Secret-Rotation.git
+cd Automatic-Secret-Rotation
+make install
 ```
 
 ### 2. Set Up HashiCorp Vault
@@ -98,6 +112,10 @@ Secrets needing rotation:
 
 #### Manual Rotation
 
+### Step 3: Rotate Secrets
+
+#### Manual Rotation
+
 Rotate a specific secret:
 
 ```bash
@@ -120,6 +138,41 @@ asr auto --dry-run
 
 # Perform rotation
 asr auto
+
+# Rotate and update environment variables
+asr auto --update-env
+```
+
+### Step 4: Password Generation & Environment Management
+
+#### Generate New Password
+
+Create a new password and store it in Vault:
+
+```bash
+# Just generate and store
+asr gen-password myapp/database
+
+# Generate and update environment variable
+asr gen-password --env-var DB_PASSWORD myapp/database
+
+# Custom length
+asr gen-password --env-var API_KEY --length 48 myapp/api
+```
+
+#### Sync Vault to Environment
+
+Update your local environment with secrets from Vault:
+
+```bash
+# Update environment variable
+asr update-env --env-var DB_PASSWORD myapp/database
+
+# Custom key name
+asr update-env --env-var TOKEN --key token myapp/github
+
+# Reload shell to apply changes
+source ~/.bashrc
 ```
 
 ## Advanced Usage
@@ -358,6 +411,46 @@ asr auto --dry-run
 
 # If looks good, proceed
 asr auto
+```
+
+### Scenario 7: Environment Variable Automation
+
+Automatically sync secrets to your development environment:
+
+```bash
+# Generate a new database password and update env var
+asr gen-password --env-var DB_PASSWORD myapp/database
+
+# Rotate secrets and update all environment variables
+asr auto --update-env
+
+# Reload shell
+source ~/.bashrc
+
+# Your app can now use the env vars
+echo $DB_PASSWORD
+echo $MYAPP_DATABASE  # Auto-named from path
+```
+
+### Scenario 8: Password Management Workflow
+
+Complete workflow for managing passwords with environment integration:
+
+```bash
+# 1. Generate initial password
+asr gen-password --env-var APP_SECRET --length 32 myapp/secret
+
+# 2. Flag for rotation every 3 months
+asr flag myapp/secret --period 3
+
+# 3. Later, when it needs rotation (or manually)
+asr rotate myapp/secret
+
+# 4. Update environment variable with new value
+asr update-env --env-var APP_SECRET myapp/secret
+
+# 5. Or do both in one step during auto-rotation
+asr auto --update-env
 ```
 
 ## Troubleshooting
