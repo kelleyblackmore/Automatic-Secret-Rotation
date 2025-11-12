@@ -1,4 +1,5 @@
 mod config;
+mod env_updater;
 mod rotation;
 mod vault;
 
@@ -89,6 +90,38 @@ enum Commands {
         /// Path to list secrets from
         #[arg(default_value = "")]
         path: String,
+    },
+
+    /// Update a local environment variable with a secret from Vault
+    UpdateEnv {
+        /// Path to the secret in Vault
+        vault_path: String,
+
+        /// Key within the secret data
+        #[arg(short, long, default_value = "password")]
+        key: String,
+
+        /// Environment variable name to update
+        #[arg(short, long)]
+        env_var: String,
+    },
+
+    /// Generate a new password, store it in Vault, and update local environment variable
+    GenPassword {
+        /// Path to store the secret in Vault
+        vault_path: String,
+
+        /// Key name for the password in Vault
+        #[arg(short, long, default_value = "password")]
+        key: String,
+
+        /// Environment variable name to update (optional)
+        #[arg(short, long)]
+        env_var: Option<String>,
+
+        /// Length of the generated password
+        #[arg(short, long)]
+        length: Option<usize>,
     },
 }
 
@@ -254,6 +287,77 @@ async fn main() -> Result<()> {
                 for secret in secrets {
                     println!("  - {}", secret);
                 }
+            }
+        }
+
+        Commands::UpdateEnv {
+            vault_path,
+            key,
+            env_var,
+        } => {
+            // Read the secret from Vault
+            let secret = vault
+                .read_secret(&config.vault.mount, &vault_path)
+                .await
+                .context("Failed to read secret from Vault")?;
+
+            // Get the specific key value
+            let value = secret
+                .data
+                .get(&key)
+                .with_context(|| format!("Key '{}' not found in secret", key))?;
+
+            // Update the environment variable
+            let env_updater = env_updater::EnvUpdater::new()
+                .context("Failed to create EnvUpdater")?;
+
+            env_updater
+                .update_env_var(&env_var, value)
+                .with_context(|| format!("Failed to update environment variable {}", env_var))?;
+
+            println!("✓ Updated environment variable '{}' in shell config files", env_var);
+            println!("  Value synced from Vault: {}/{} (key: {})", config.vault.mount, vault_path, key);
+            println!("\n⚠️  Note: You need to reload your shell or run 'source ~/.bashrc' (or ~/.zshrc) for changes to take effect");
+        }
+
+        Commands::GenPassword {
+            vault_path,
+            key,
+            env_var,
+            length,
+        } => {
+            // Generate a new password
+            let password_length = length.unwrap_or(config.rotation.secret_length);
+            let new_password = rotation::generate_secret(password_length);
+
+            // Prepare secret data
+            let mut secret_data = std::collections::HashMap::new();
+            secret_data.insert(key.clone(), new_password.clone());
+
+            // Store in Vault
+            vault
+                .write_secret(&config.vault.mount, &vault_path, secret_data)
+                .await
+                .context("Failed to write secret to Vault")?;
+
+            println!("✓ Generated new password and stored in Vault");
+            println!("  Location: {}/{}", config.vault.mount, vault_path);
+            println!("  Key: {}", key);
+            println!("  Length: {} characters", password_length);
+
+            // Update local environment variable if specified
+            if let Some(env_var_name) = env_var {
+                let env_updater = env_updater::EnvUpdater::new()
+                    .context("Failed to create EnvUpdater")?;
+
+                env_updater
+                    .update_env_var(&env_var_name, &new_password)
+                    .with_context(|| format!("Failed to update environment variable {}", env_var_name))?;
+
+                println!("✓ Updated environment variable '{}' in shell config files", env_var_name);
+                println!("\n⚠️  Note: You need to reload your shell or run 'source ~/.bashrc' (or ~/.zshrc) for changes to take effect");
+            } else {
+                println!("\n💡 Tip: Use --env-var to automatically update a local environment variable");
             }
         }
     }

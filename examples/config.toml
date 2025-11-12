@@ -6,7 +6,8 @@ address = "http://127.0.0.1:8200"
 
 # Vault token with permissions to read/write secrets and metadata
 # In production, use environment variables or secure secret management
-token = "hvs.your-vault-token-here"
+# For local development with 'make vault-docker', use: "root"
+token = "root"
 
 # KV v2 mount point in Vault
 mount = "secret"

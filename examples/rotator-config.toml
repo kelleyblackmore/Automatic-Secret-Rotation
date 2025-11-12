@@ -1,0 +1,8 @@
+[vault]
+address = "http://127.0.0.1:8200"
+token = "root"
+mount = "secret"
+
+[rotation]
+period_months = 6
+secret_length = 32

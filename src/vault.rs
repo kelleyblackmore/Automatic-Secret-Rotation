@@ -186,6 +186,12 @@ impl VaultClient {
             .await
             .context("Failed to list secrets from Vault")?;
 
+        // 404 means no secrets exist at this path, which is fine
+        if response.status() == 404 {
+            info!("No secrets found at {}/{} (empty path)", mount, path);
+            return Ok(vec![]);
+        }
+
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
