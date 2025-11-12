@@ -162,7 +162,7 @@ vault-create-test-secrets:
 vault-flag-test-secrets:
 	@echo "Flagging test secrets for rotation..."
 	VAULT_ADDR='http://127.0.0.1:8200' VAULT_TOKEN='root' cargo run -- flag secret/database/postgres
-	VAULT_ADDR='httpmak://127.0.0.1:8200' VAULT_TOKEN='root' cargo run -- flag secret/api/github
+	VAULT_ADDR='http://127.0.0.1:8200' VAULT_TOKEN='root' cargo run -- flag secret/api/github
 	@echo "Test secrets flagged!"
 
 # Complete setup: start Vault, create secrets, flag them
