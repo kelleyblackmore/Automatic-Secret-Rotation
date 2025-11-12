@@ -25,6 +25,17 @@ impl EnvUpdater {
         Self { home_dir }
     }
 
+    /// Escape a value for safe use in shell double quotes
+    /// Escapes backslashes, double quotes, dollar signs, backticks, and newlines
+    fn escape_shell_value(value: &str) -> String {
+        value
+            .replace('\\', r"\\")  // Escape backslashes first
+            .replace('"', r#"\""#)  // Escape double quotes
+            .replace('$', r"\$")    // Escape dollar signs (prevent variable expansion)
+            .replace('`', r"\`")    // Escape backticks (prevent command substitution)
+            .replace('\n', r"\n")   // Escape newlines
+    }
+
     /// Update or add an environment variable in shell config files
     pub fn update_env_var(&self, var_name: &str, new_value: &str) -> Result<()> {
         info!("Updating environment variable: {}", var_name);
@@ -75,6 +86,7 @@ impl EnvUpdater {
         let export_pattern = format!("export {}=", var_name);
         let mut found = false;
         let mut new_content = String::new();
+        let escaped_value = Self::escape_shell_value(new_value);
 
         for line in content.lines() {
             let trimmed = line.trim();
@@ -83,7 +95,7 @@ impl EnvUpdater {
             if trimmed.starts_with(&export_pattern) || 
                trimmed.starts_with(&format!("{}=", var_name)) {
                 // Replace the line with the new value
-                new_content.push_str(&format!("export {}=\"{}\"\n", var_name, new_value));
+                new_content.push_str(&format!("export {}=\"{}\"\n", var_name, escaped_value));
                 found = true;
             } else {
                 new_content.push_str(line);
@@ -109,10 +121,12 @@ impl EnvUpdater {
             content.push('\n');
         }
 
+        let escaped_value = Self::escape_shell_value(new_value);
+        
         // Add a comment and the new export
         content.push_str(&format!(
             "\n# Auto-updated by secret rotator\nexport {}=\"{}\"\n",
-            var_name, new_value
+            var_name, escaped_value
         ));
 
         fs::write(path, content)
@@ -161,12 +175,6 @@ impl EnvUpdater {
                 continue;
             }
 
-            // Skip commented out lines
-            if trimmed.starts_with('#') {
-                new_content.push_str(line);
-                new_content.push('\n');
-                continue;
-            }
             // Check if this line exports our variable
             if trimmed.starts_with(&export_pattern) || 
                trimmed.starts_with(&format!("{}=", var_name)) {
@@ -174,9 +182,14 @@ impl EnvUpdater {
                 continue; // Skip this line
             }
 
-            skip_next_comment = false;
-            new_content.push_str(line);
-            new_content.push('\n');
+            if skip_next_comment {
+                skip_next_comment = false;
+                new_content.push_str(line);
+                new_content.push('\n');
+            } else {
+                new_content.push_str(line);
+                new_content.push('\n');
+            }
         }
 
         fs::write(path, new_content)
@@ -235,6 +248,100 @@ mod tests {
         let content = fs::read_to_string(&bashrc)?;
         assert!(!content.contains("MY_SECRET"));
         assert!(content.contains("# other config"));
+        
+        Ok(())
+    }
+
+    #[test]
+    fn test_escape_shell_value() {
+        // Test escaping double quotes
+        assert_eq!(
+            EnvUpdater::escape_shell_value(r#"value"with"quotes"#),
+            r#"value\"with\"quotes"#
+        );
+
+        // Test escaping backslashes
+        assert_eq!(
+            EnvUpdater::escape_shell_value(r"path\to\file"),
+            r"path\\to\\file"
+        );
+
+        // Test escaping dollar signs (prevent variable expansion)
+        assert_eq!(
+            EnvUpdater::escape_shell_value("value$VAR$test"),
+            r"value\$VAR\$test"
+        );
+
+        // Test escaping backticks (prevent command substitution)
+        assert_eq!(
+            EnvUpdater::escape_shell_value("value`cmd`test"),
+            r"value\`cmd\`test"
+        );
+
+        // Test escaping newlines
+        assert_eq!(
+            EnvUpdater::escape_shell_value("line1\nline2"),
+            r"line1\nline2"
+        );
+
+        // Test escaping multiple special characters at once
+        assert_eq!(
+            EnvUpdater::escape_shell_value(r#"test"$VAR`cmd`\path"#),
+            r#"test\"\$VAR\`cmd\`\\path"#
+        );
+    }
+
+    #[test]
+    fn test_update_variable_with_special_characters() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let bashrc = temp_dir.path().join(".bashrc");
+        fs::write(&bashrc, "# existing config\n")?;
+
+        let updater = EnvUpdater::with_home_dir(temp_dir.path().to_path_buf());
+        
+        // Test with value containing double quotes
+        updater.update_env_var("MY_SECRET", r#"value"with"quotes"#)?;
+        let content = fs::read_to_string(&bashrc)?;
+        assert!(content.contains(r#"export MY_SECRET="value\"with\"quotes""#));
+        
+        Ok(())
+    }
+
+    #[test]
+    fn test_update_variable_with_command_injection_attempt() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let bashrc = temp_dir.path().join(".bashrc");
+        fs::write(&bashrc, "export MY_SECRET=\"old_value\"\n")?;
+
+        let updater = EnvUpdater::with_home_dir(temp_dir.path().to_path_buf());
+        
+        // Try to inject a command using backticks
+        updater.update_env_var("MY_SECRET", "test`whoami`test")?;
+        let content = fs::read_to_string(&bashrc)?;
+        // Should be escaped, not executed
+        assert!(content.contains("export MY_SECRET=\"test\\`whoami\\`test\""));
+        
+        // Try to inject using $()
+        updater.update_env_var("MY_SECRET", "test$(whoami)test")?;
+        let content = fs::read_to_string(&bashrc)?;
+        // Dollar signs should be escaped
+        assert!(content.contains("export MY_SECRET=\"test\\$(whoami)test\""));
+        
+        Ok(())
+    }
+
+    #[test]
+    fn test_update_variable_with_backslashes() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let bashrc = temp_dir.path().join(".bashrc");
+        fs::write(&bashrc, "# existing config\n")?;
+
+        let updater = EnvUpdater::with_home_dir(temp_dir.path().to_path_buf());
+        
+        // Test with Windows-style path
+        updater.update_env_var("MY_PATH", r"C:\Users\test\file.txt")?;
+        let content = fs::read_to_string(&bashrc)?;
+        assert!(content.contains(r#"export MY_PATH="C:\\Users\\test\\file.txt""#));
         
         Ok(())
     }
