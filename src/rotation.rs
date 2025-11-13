@@ -4,7 +4,8 @@ use rand::Rng;
 use std::collections::HashMap;
 use tracing::{info, warn};
 
-use crate::vault::VaultClient;
+use crate::backends::SecretBackend;
+use crate::targets::Target;
 
 const ROTATION_METADATA_KEY: &str = "rotation_enabled";
 const LAST_ROTATED_KEY: &str = "last_rotated";
@@ -67,16 +68,26 @@ pub fn generate_secret(length: usize) -> String {
 
 /// Rotate a secret and update metadata
 pub async fn rotate_secret(
-    vault: &VaultClient,
-    mount: &str,
+    backend: &dyn SecretBackend,
     path: &str,
     secret_length: usize,
 ) -> Result<String> {
-    info!("Rotating secret at {}/{}", mount, path);
+    rotate_secret_with_target(backend, path, secret_length, None, None).await
+}
+
+/// Rotate a secret and optionally update target password (database, API, etc.)
+pub async fn rotate_secret_with_target(
+    backend: &dyn SecretBackend,
+    path: &str,
+    secret_length: usize,
+    target: Option<&dyn Target>,
+    target_username: Option<&str>,
+) -> Result<String> {
+    info!("Rotating secret at {} ({})", path, backend.backend_type());
 
     // Read current secret
-    let current = vault
-        .read_secret(mount, path)
+    let current = backend
+        .read_secret(path)
         .await
         .context("Failed to read current secret")?;
 
@@ -101,18 +112,35 @@ pub async fn rotate_secret(
     new_data.insert(key_to_update.clone(), new_secret.clone());
 
     // Write updated secret
-    vault
-        .write_secret(mount, path, new_data)
+    backend
+        .write_secret(path, new_data)
         .await
         .context("Failed to write rotated secret")?;
 
+    // Update target password if configured
+    if let Some(target) = target {
+        if let Some(username) = target_username {
+            info!("Updating {} password for user: {}", target.target_type(), username);
+            target
+                .update_password(username, &new_secret)
+                .await
+                .with_context(|| format!("Failed to update {} password", target.target_type()))?;
+
+            // Optionally verify the new password works
+            target
+                .verify_connection(username, &new_secret, None)
+                .await
+                .with_context(|| format!("Failed to verify new {} password", target.target_type()))?;
+        }
+    }
+
     // Update metadata with rotation timestamp
-    let mut metadata = match vault.read_metadata(mount, path).await {
-        Ok(existing) => existing.custom_metadata.unwrap_or_default(),
+    let mut metadata = match backend.read_metadata(path).await {
+        Ok(existing) => existing,
         Err(e) => {
             warn!(
-                "Failed to read existing metadata for {}/{}: {}. Proceeding with defaults.",
-                mount, path, e
+                "Failed to read existing metadata for {}: {}. Proceeding with defaults.",
+                path, e
             );
             HashMap::new()
         }
@@ -121,25 +149,24 @@ pub async fn rotate_secret(
     metadata.insert(ROTATION_METADATA_KEY.to_string(), "true".to_string());
     metadata.insert(LAST_ROTATED_KEY.to_string(), Utc::now().to_rfc3339());
 
-    vault
-        .update_metadata(mount, path, metadata)
+    backend
+        .update_metadata(path, metadata)
         .await
         .context("Failed to update metadata")?;
 
-    info!("Successfully rotated secret at {}/{}", mount, path);
+    info!("Successfully rotated secret at {}", path);
     Ok(new_secret)
 }
 
 /// Flag a secret for automatic rotation
 pub async fn flag_for_rotation(
-    vault: &VaultClient,
-    mount: &str,
+    backend: &dyn SecretBackend,
     path: &str,
     period_months: u32,
 ) -> Result<()> {
     info!(
-        "Flagging secret at {}/{} for rotation every {} months",
-        mount, path, period_months
+        "Flagging secret at {} ({}) for rotation every {} months",
+        path, backend.backend_type(), period_months
     );
 
     let mut metadata = HashMap::new();
@@ -147,32 +174,32 @@ pub async fn flag_for_rotation(
     metadata.insert(LAST_ROTATED_KEY.to_string(), Utc::now().to_rfc3339());
     metadata.insert(ROTATION_PERIOD_KEY.to_string(), period_months.to_string());
 
-    vault
-        .update_metadata(mount, path, metadata)
+    backend
+        .update_metadata(path, metadata)
         .await
         .context("Failed to update metadata")?;
 
     info!(
-        "Successfully flagged secret at {}/{} for rotation",
-        mount, path
+        "Successfully flagged secret at {} for rotation",
+        path
     );
     Ok(())
 }
 
 /// Scan for secrets that need rotation
 pub async fn scan_for_rotation(
-    vault: &VaultClient,
-    mount: &str,
+    backend: &dyn SecretBackend,
     path: &str,
     default_period: u32,
 ) -> Result<Vec<String>> {
     info!(
-        "Scanning for secrets needing rotation in {}/{}",
-        mount, path
+        "Scanning for secrets needing rotation in {} ({})",
+        if path.is_empty() { "/" } else { path },
+        backend.backend_type()
     );
 
-    let secrets = vault
-        .list_secrets(mount, path)
+    let secrets = backend
+        .list_secrets(path)
         .await
         .context("Failed to list secrets")?;
 
@@ -185,9 +212,9 @@ pub async fn scan_for_rotation(
             format!("{}/{}", path, secret)
         };
 
-        match vault.read_metadata(mount, &secret_path).await {
+        match backend.read_metadata(&secret_path).await {
             Ok(metadata) => {
-                if needs_rotation(&metadata.custom_metadata, default_period) {
+                if needs_rotation(&Some(metadata), default_period) {
                     needs_rotation_list.push(secret_path);
                 }
             }

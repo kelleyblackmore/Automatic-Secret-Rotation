@@ -21,6 +21,10 @@ impl EnvUpdater {
     }
 
     /// Create an EnvUpdater for a specific home directory
+    /// 
+    /// This is useful for testing or when you need to update environment variables
+    /// in a different user's home directory.
+    #[cfg_attr(not(test), allow(dead_code))] // Used in tests
     pub fn with_home_dir(home_dir: PathBuf) -> Self {
         Self { home_dir }
     }
@@ -122,6 +126,10 @@ impl EnvUpdater {
     }
 
     /// Remove an environment variable from shell config files
+    /// 
+    /// Note: This is primarily used for testing. For production use, consider
+    /// manually editing shell config files or using standard shell utilities.
+    #[cfg(test)]
     pub fn remove_env_var(&self, var_name: &str) -> Result<()> {
         info!("Removing environment variable: {}", var_name);
 
@@ -144,20 +152,21 @@ impl EnvUpdater {
     }
 
     /// Remove environment variable from a specific file
+    #[cfg(test)]
     fn remove_from_file(&self, path: &Path, var_name: &str) -> Result<()> {
         let content = fs::read_to_string(path)
             .with_context(|| format!("Failed to read {}", path.display()))?;
 
         let export_pattern = format!("export {}=", var_name);
         let mut new_content = String::new();
-        let mut skip_next_comment = false;
+        let mut skip_next_line = false;
 
         for line in content.lines() {
             let trimmed = line.trim();
             
-            // Skip the auto-update comment if we're about to remove a variable
+            // Skip the auto-update comment and the next line (the export)
             if trimmed == "# Auto-updated by secret rotator" {
-                skip_next_comment = true;
+                skip_next_line = true;
                 continue;
             }
 
@@ -167,14 +176,21 @@ impl EnvUpdater {
                 new_content.push('\n');
                 continue;
             }
+            
             // Check if this line exports our variable
             if trimmed.starts_with(&export_pattern) || 
                trimmed.starts_with(&format!("{}=", var_name)) {
-                skip_next_comment = false;
-                continue; // Skip this line
+                // Skip this line (and reset skip flag if it was set)
+                skip_next_line = false;
+                continue;
             }
 
-            skip_next_comment = false;
+            // If we were supposed to skip this line, skip it
+            if skip_next_line {
+                skip_next_line = false;
+                continue;
+            }
+
             new_content.push_str(line);
             new_content.push('\n');
         }

@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tracing::{debug, info};
 
+use super::secret_backend::{SecretBackend, SecretData};
+
 /// HashiCorp Vault client
 #[derive(Clone)]
 pub struct VaultClient {
@@ -18,7 +20,7 @@ pub struct SecretMetadata {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct SecretData {
+pub struct VaultSecretData {
     pub data: HashMap<String, String>,
     pub metadata: Option<SecretMetadata>,
 }
@@ -50,7 +52,7 @@ impl VaultClient {
     }
 
     /// Read a secret from Vault KV v2
-    pub async fn read_secret(&self, mount: &str, path: &str) -> Result<SecretData> {
+    pub async fn read_secret(&self, mount: &str, path: &str) -> Result<VaultSecretData> {
         let url = format!("{}/v1/{}/data/{}", self.address, mount, path);
         debug!("Reading secret from: {}", url);
 
@@ -68,7 +70,7 @@ impl VaultClient {
             anyhow::bail!("Vault request failed with status {}: {}", status, body);
         }
 
-        let vault_response: VaultResponse<SecretData> = response
+        let vault_response: VaultResponse<VaultSecretData> = response
             .json()
             .await
             .context("Failed to parse Vault response")?;
@@ -209,5 +211,53 @@ impl VaultClient {
             .context("Failed to parse Vault list response")?;
 
         Ok(vault_response.data.keys)
+    }
+}
+
+/// Wrapper for VaultClient that implements SecretBackend trait
+pub struct VaultBackend {
+    client: VaultClient,
+    mount: String,
+}
+
+impl VaultBackend {
+    pub fn new(client: VaultClient, mount: String) -> Self {
+        Self { client, mount }
+    }
+}
+
+#[async_trait::async_trait]
+impl SecretBackend for VaultBackend {
+    async fn read_secret(&self, path: &str) -> Result<SecretData> {
+        let vault_data = self.client.read_secret(&self.mount, path).await?;
+        
+        let metadata = vault_data.metadata
+            .and_then(|m| m.custom_metadata);
+        
+        Ok(SecretData {
+            data: vault_data.data,
+            metadata: metadata.clone(),
+        })
+    }
+
+    async fn write_secret(&self, path: &str, data: HashMap<String, String>) -> Result<()> {
+        self.client.write_secret(&self.mount, path, data).await
+    }
+
+    async fn update_metadata(&self, path: &str, metadata: HashMap<String, String>) -> Result<()> {
+        self.client.update_metadata(&self.mount, path, metadata).await
+    }
+
+    async fn read_metadata(&self, path: &str) -> Result<HashMap<String, String>> {
+        let metadata = self.client.read_metadata(&self.mount, path).await?;
+        Ok(metadata.custom_metadata.unwrap_or_default())
+    }
+
+    async fn list_secrets(&self, path: &str) -> Result<Vec<String>> {
+        self.client.list_secrets(&self.mount, path).await
+    }
+
+    fn backend_type(&self) -> &'static str {
+        "HashiCorp Vault"
     }
 }

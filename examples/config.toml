@@ -18,3 +18,16 @@ period_months = 6
 
 # Length of generated secrets (characters)
 secret_length = 32
+
+# Optional: Database configuration for PostgreSQL password rotation
+# [database]
+# host = "localhost"
+# port = 5432
+# database = "postgres"
+# username = "postgres"
+# # Path in secret backend for admin password (recommended)
+# password_path = "admin/postgres-password"
+# # Or provide password directly (not recommended for production)
+# # password = "your-admin-password"
+# # SSL mode: disable, allow, prefer, require, verify-ca, verify-full
+# ssl_mode = "prefer"
