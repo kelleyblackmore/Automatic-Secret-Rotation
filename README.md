@@ -4,19 +4,24 @@ A Rust-based CLI tool for automatic secret rotation with support for HashiCorp V
 
 ## Features
 
-- 🔐 **Multiple Backend Support**: Works with HashiCorp Vault KV v2, AWS Secrets Manager, and local file storage
-- 🔐 **HashiCorp Vault Integration**: Seamlessly works with Vault KV v2 secrets engine
-- ☁️ **AWS Secrets Manager Integration**: Full support for AWS Secrets Manager with tag-based metadata
-- 📁 **File Backend**: Local file storage for testing and development (simple key:value format)
-- 🔄 **Automatic Rotation**: Flag secrets for automatic rotation with customizable periods
-- 📅 **Configurable Schedule**: Default 6-month rotation period, customizable per secret
-- 🤖 **CI/CD Ready**: Designed for automation platforms (Jenkins, GitLab CI, GitHub Actions)
-- 🔍 **Scanning**: Scan vault paths to identify secrets needing rotation
-- 📝 **Metadata Tracking**: Uses Vault metadata to track rotation status and schedules
-- 🎯 **Flexible Configuration**: Configure via file or environment variables
-- 🔑 **Password Generation**: Generate secure random passwords and store them in Vault
-- 💻 **Environment Variable Sync**: Automatically update local shell config files with rotated secrets
-- ⚡ **Auto-Update Workflow**: Rotate secrets and update environment variables in one command
+- **Multiple Backend Support**: Works with HashiCorp Vault KV v2, AWS Secrets Manager, and local file storage
+- **HashiCorp Vault Integration**: Seamlessly works with Vault KV v2 secrets engine
+- **AWS Secrets Manager Integration**: Full support for AWS Secrets Manager with tag-based metadata and region configuration
+- **File Backend**: Local file storage for testing and development (simple key:value format)
+- **Automatic Rotation**: Flag secrets for automatic rotation with customizable periods
+- **Configurable Schedule**: Default 6-month rotation period, customizable per secret
+- **CI/CD Ready**: Designed for automation platforms (Jenkins, GitLab CI, GitHub Actions)
+- **Scanning**: Scan vault paths to identify secrets needing rotation
+- **Metadata Tracking**: Uses backend metadata to track rotation status and schedules
+- **Flexible Configuration**: Configure via file or environment variables
+- **Password Generation**: Generate secure random passwords and store them in backends
+- **Environment Variable Sync**: Automatically update local shell config files with rotated secrets
+- **Auto-Update Workflow**: Rotate secrets and update environment variables in one command
+- **Target System**: Update passwords in target systems (databases, APIs) during rotation
+- **PostgreSQL Integration**: Automatically update PostgreSQL database passwords when rotating secrets
+- **API Target Support**: Update passwords via REST API calls with configurable endpoints and methods
+- **Comprehensive Testing**: Full unit test suite with 38+ tests covering all major functionality
+- **GitHub Actions CI/CD**: Automated testing and binary releases for multiple platforms
 
 ## Installation
 
@@ -93,6 +98,34 @@ make release      # Release build
 ```bash
 cargo install --git https://github.com/kelleyblackmore/Automatic-Secret-Rotation
 ```
+
+### Docker
+
+Use the ASR tool in a container:
+
+```bash
+# Build from Dockerfile.example (or use the provided example)
+docker build -f Dockerfile.example -t asr:latest .
+
+# Run commands
+docker run --rm asr:latest --help
+docker run --rm -v $(pwd):/workspace asr:latest scan
+
+# With environment variables
+docker run --rm \
+  -e VAULT_ADDR=http://vault:8200 \
+  -e VAULT_TOKEN=your-token \
+  -e SECRET_BACKEND=vault \
+  asr:latest auto
+
+# Build specific version
+docker build -f Dockerfile.example --build-arg ASR_VERSION=v1.0.0 -t asr:v1.0.0 .
+```
+
+The Dockerfile will:
+1. Try to download pre-built binaries from GitHub releases
+2. Fall back to building from source if binaries aren't available
+3. Support both x86_64 and ARM64 architectures
 
 ### Local Development
 
@@ -305,6 +338,46 @@ username:admin
 
 Metadata is stored in a separate `.meta` file alongside each secret file.
 
+#### Target Configuration (PostgreSQL, API)
+
+Configure target systems where passwords should be updated during rotation:
+
+**PostgreSQL Target:**
+```toml
+[targets.postgres]
+host = "localhost"
+port = 5432
+database = "postgres"
+username = "admin"
+password_path = "admin/password"  # Path in backend for admin password
+ssl_mode = "prefer"  # Options: disable, allow, prefer, require, verify-ca, verify-full
+```
+
+**API Target:**
+```toml
+[targets.api]
+base_url = "https://api.example.com"
+endpoint = "/users/{username}/password"  # {username} will be replaced
+method = "POST"  # GET, POST, PUT, PATCH, DELETE
+password_field = "password"
+username_field = "username"  # Optional
+timeout_seconds = 30
+auth_header = "Bearer token123"  # Optional
+
+[targets.api.headers]  # Optional additional headers
+X-Custom-Header = "value"
+```
+
+**Legacy Database Config (deprecated, use `[targets.postgres]` instead):**
+```toml
+[database]
+host = "localhost"
+port = 5432
+database = "postgres"
+username = "admin"
+password_path = "admin/password"
+```
+
 ### Commands
 
 #### `init` - Initialize Configuration
@@ -345,8 +418,17 @@ asr scan app/
 Manually rotate a specific secret:
 
 ```bash
+# Basic rotation
 asr rotate app/db-password
+
+# Rotate and update target password (PostgreSQL, API, etc.)
+asr rotate app/db-password --update-target --target-username myapp_user
 ```
+
+When using `--update-target`, the tool will:
+1. Rotate the secret in the backend (Vault/AWS/File)
+2. Update the password in the configured target system (PostgreSQL database or API)
+3. Verify the new password works
 
 #### `auto` - Automatic Rotation
 
@@ -364,6 +446,12 @@ asr auto app/
 
 # Rotate and update environment variables
 asr auto --update-env
+
+# Rotate and update target passwords (databases, APIs)
+asr auto --update-target
+
+# Rotate, update env vars, and update targets
+asr auto --update-env --update-target
 ```
 
 When using `--update-env`, environment variables are automatically created based on the secret path:
