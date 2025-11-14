@@ -584,7 +584,21 @@ async fn create_backend(config: &Config) -> Result<Backend> {
                 .context("Failed to create file backend")?;
             Ok(Box::new(file_backend))
         }
-        "vault" | _ => {
+        "vault" => {
+            let vault_config = config.vault.as_ref().ok_or_else(|| {
+                anyhow::anyhow!("Vault configuration not found. Set VAULT_ADDR/VAULT_TOKEN or configure [vault] section")
+            })?;
+            let vault_client = crate::backends::VaultClient::new(
+                vault_config.address.clone(),
+                vault_config.token.clone(),
+            )
+            .context("Failed to create Vault client")?;
+            Ok(Box::new(crate::backends::VaultBackend::new(
+                vault_client,
+                vault_config.mount.clone(),
+            )))
+        }
+        _ => {
             let vault_config = config.vault.as_ref().ok_or_else(|| {
                 anyhow::anyhow!("Vault configuration not found. Set VAULT_ADDR/VAULT_TOKEN or configure [vault] section")
             })?;
