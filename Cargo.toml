@@ -3,7 +3,7 @@ name = "secret-rotator"
 version = "0.1.0"
 edition = "2021"
 authors = ["Kelley Blackmore"]
-description = "Automatic secret rotation tool with HashiCorp Vault integration"
+description = "Automatic secret rotation tool with HashiCorp Vault and AWS Secrets Manager support"
 license = "MIT"
 
 [[bin]]
@@ -23,6 +23,11 @@ toml = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rand = "0.8"
+aws-sdk-secretsmanager = "1.0"
+aws-config = "1.0"
+aws-sdk-sts = "1.0"
+async-trait = "0.1"
+tokio-postgres = "0.7"
 
 [dev-dependencies]
 mockito = "1.5"
