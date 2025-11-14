@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use aws_config::Region;
 use aws_sdk_secretsmanager::Client as SecretsManagerClient;
 use aws_sdk_secretsmanager::types::Tag;
 use serde_json;
@@ -22,7 +23,12 @@ impl AwsSecretsClient {
                 .unwrap_or_else(|_| "us-east-1".to_string())
         });
 
-        let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+        // Load AWS config from environment and explicitly set the region
+        // Using defaults() with region override to ensure the provided region is used
+        let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
+            .region(Region::new(region_str.clone()))
+            .load()
+            .await;
         let client = SecretsManagerClient::new(&config);
 
         Ok(Self {
