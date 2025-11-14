@@ -4,9 +4,10 @@ A Rust-based CLI tool for automatic secret rotation with support for HashiCorp V
 
 ## Features
 
-- 🔐 **Multiple Backend Support**: Works with HashiCorp Vault KV v2 and AWS Secrets Manager
+- 🔐 **Multiple Backend Support**: Works with HashiCorp Vault KV v2, AWS Secrets Manager, and local file storage
 - 🔐 **HashiCorp Vault Integration**: Seamlessly works with Vault KV v2 secrets engine
 - ☁️ **AWS Secrets Manager Integration**: Full support for AWS Secrets Manager with tag-based metadata
+- 📁 **File Backend**: Local file storage for testing and development (simple key:value format)
 - 🔄 **Automatic Rotation**: Flag secrets for automatic rotation with customizable periods
 - 📅 **Configurable Schedule**: Default 6-month rotation period, customizable per secret
 - 🤖 **CI/CD Ready**: Designed for automation platforms (Jenkins, GitLab CI, GitHub Actions)
@@ -33,16 +34,42 @@ curl -fsSL https://raw.githubusercontent.com/kelleyblackmore/Automatic-Secret-Ro
 ```
 
 This will:
-1. Install Rust (if not already installed)
-2. Clone the repository
-3. Build and install `asr` to `~/.local/bin/asr`
+1. **Download pre-built binary** from GitHub releases (if available for your platform)
+2. **Fall back to building from source** if no pre-built binary is available:
+   - Install Rust (if not already installed)
+   - Clone the repository
+   - Build the binary
+3. Install the binary to `~/.local/bin/`:
+   - **macOS**: `secret-rotator` (default, to avoid conflict with system `asr`)
+   - **Other platforms**: `asr` (default)
 4. Verify the installation
+
+**Note**: Pre-built binaries are available for:
+- Linux (x86_64, ARM64)
+- macOS (x86_64, ARM64/Apple Silicon)
 
 After installation, you may need to add `~/.local/bin` to your PATH:
 
 ```bash
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
 source ~/.bashrc
+```
+
+**Note for macOS users**: macOS includes a system tool called `asr` (Apple Software Restore) at `/usr/sbin/asr`. The installer automatically handles this by:
+1. **Defaulting to `secret-rotator` as the binary name** on macOS to avoid conflicts
+2. Detecting macOS and informing you of the default
+3. Allowing you to override with `ASR_BINARY_NAME=asr` if you prefer
+
+**Installation options:**
+```bash
+# Use custom binary name
+ASR_BINARY_NAME=my-custom-name ./install.sh
+
+# Force build from source (skip binary download)
+ASR_BUILD_FROM_SOURCE=1 ./install.sh
+
+# Combine options
+ASR_BINARY_NAME=rotator ASR_BUILD_FROM_SOURCE=1 ./install.sh
 ```
 
 ### From Source
@@ -212,6 +239,18 @@ period_months = 6
 secret_length = 32
 ```
 
+**For File Backend (Local Storage):**
+```toml
+backend = "file"
+
+[file]
+directory = "~/.asr/secrets"  # Default: ~/.asr/secrets
+
+[rotation]
+period_months = 6
+secret_length = 32
+```
+
 Use it with:
 
 ```bash
@@ -246,6 +285,25 @@ export SECRET_LENGTH=32
 
 asr <command>
 ```
+
+**For File Backend:**
+```bash
+export SECRET_BACKEND="file"
+export ASR_FILE_DIR="~/.asr/secrets"  # Optional, defaults to ~/.asr/secrets
+export ROTATION_PERIOD_MONTHS=6
+export SECRET_LENGTH=32
+
+asr <command>
+```
+
+**File Format:**
+Secrets are stored in plain text files with `key:value` format, one per line:
+```
+password:mysecret123
+username:admin
+```
+
+Metadata is stored in a separate `.meta` file alongside each secret file.
 
 ### Commands
 
@@ -366,6 +424,50 @@ asr list app/
 ```
 
 ## Use Case Examples
+
+### Use Case 0: Testing with File Backend (Local Storage)
+
+**Scenario**: You want to test secret rotation locally without setting up Vault or AWS.
+
+```bash
+# Set backend to file
+export SECRET_BACKEND="file"
+export ASR_FILE_DIR="./test-secrets"  # Use local directory for testing
+
+# Generate a password
+asr gen-password myapp/database --key password
+
+# Flag for rotation
+asr flag myapp/database --period 3
+
+# Scan for secrets needing rotation
+asr scan
+
+# Rotate secrets
+asr auto
+
+# View the secret file
+cat test-secrets/myapp/database
+# Output:
+# password:2ed1md...
+
+# View metadata
+cat test-secrets/myapp/database.meta
+# Output:
+# rotation_enabled:true
+# last_rotated:2024-01-15T10:30:00Z
+```
+
+**File Structure:**
+```
+test-secrets/
+├── myapp/
+│   ├── database          # Secret file (key:value format)
+│   └── database.meta    # Metadata file
+└── api/
+    ├── token
+    └── token.meta
+```
 
 ### Use Case 1: Setting Up a New Application Secret (Vault)
 
@@ -940,6 +1042,12 @@ The tool uses backend-specific metadata to track rotation status:
 - `last_rotated`: Tag with RFC3339 timestamp of last rotation
 - `rotation_period_months`: Tag with custom rotation period (optional)
 
+**For File Backend:**
+- Uses separate `.meta` files alongside secret files
+- `rotation_enabled`: Set to "true" for secrets that should be rotated
+- `last_rotated`: RFC3339 timestamp of last rotation
+- `rotation_period_months`: Custom rotation period (optional)
+
 ### Rotation Process
 
 1. **Flagging**: When you flag a secret, metadata/tags are added to track rotation
@@ -1094,6 +1202,42 @@ cargo run -- --help
 ```
 
 ## Troubleshooting
+
+### macOS-Specific Issues
+
+**"Command not found" or "Wrong command executing"**
+
+On macOS, the installer defaults to installing the binary as `secret-rotator` to avoid conflict with the system `asr` tool. 
+
+1. **Check which binary was installed:**
+   ```bash
+   ls ~/.local/bin/ | grep -E "(asr|secret-rotator)"
+   ```
+
+2. **Use the correct command name:**
+   ```bash
+   # Default on macOS:
+   secret-rotator --help
+   
+   # If you installed with ASR_BINARY_NAME=asr:
+   asr --help
+   ```
+
+3. **If you want to use 'asr' on macOS:**
+   ```bash
+   # Reinstall with custom name:
+   ASR_BINARY_NAME=asr ./install.sh
+   
+   # Then ensure ~/.local/bin comes before /usr/sbin in PATH:
+   export PATH="$HOME/.local/bin:$PATH"
+   ```
+
+4. **Verify PATH configuration:**
+   ```bash
+   which secret-rotator  # Should show: ~/.local/bin/secret-rotator
+   echo $PATH | grep -o "[^:]*" | grep -n "local"
+   # ~/.local/bin should appear before /usr/sbin
+   ```
 
 ### General Issues
 

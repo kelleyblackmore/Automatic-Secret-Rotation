@@ -15,6 +15,9 @@ pub struct Config {
     pub aws: Option<AwsConfig>,
     
     #[serde(default)]
+    pub file: Option<FileConfig>,
+    
+    #[serde(default)]
     pub rotation: RotationConfig,
     
     /// Legacy database config (deprecated, use targets.postgres instead)
@@ -38,6 +41,18 @@ pub struct VaultConfig {
 pub struct AwsConfig {
     #[serde(default = "default_aws_region")]
     pub region: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileConfig {
+    /// Base directory for storing secret files
+    /// Default: ~/.asr/secrets
+    #[serde(default = "default_file_dir")]
+    pub directory: String,
+}
+
+fn default_file_dir() -> String {
+    format!("{}/.asr/secrets", std::env::var("HOME").unwrap_or_else(|_| ".".to_string()))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -200,6 +215,15 @@ impl Config {
             None
         };
 
+        let file = if backend == "file" {
+            Some(FileConfig {
+                directory: std::env::var("ASR_FILE_DIR")
+                    .unwrap_or_else(|_| default_file_dir()),
+            })
+        } else {
+            None
+        };
+
         let rotation = RotationConfig {
             period_months: std::env::var("ROTATION_PERIOD_MONTHS")
                 .ok()
@@ -236,6 +260,7 @@ impl Config {
             backend,
             vault,
             aws,
+            file,
             rotation,
             database,
             targets: None,
@@ -253,6 +278,9 @@ impl Config {
             }),
             aws: Some(AwsConfig {
                 region: "us-east-1".to_string(),
+            }),
+            file: Some(FileConfig {
+                directory: default_file_dir(),
             }),
             rotation: RotationConfig::default(),
             database: None,

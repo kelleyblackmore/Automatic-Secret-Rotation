@@ -233,7 +233,7 @@ pub async fn execute(cli: Cli) -> Result<()> {
         Commands::Rotate {
             path,
             update_target,
-            target_type,
+            target_type: _target_type,
             target_username,
         } => {
             if update_target && target_username.is_none() {
@@ -575,6 +575,14 @@ async fn create_backend(config: &Config) -> Result<Backend> {
                 .await
                 .context("Failed to create AWS Secrets Manager client")?;
             Ok(Box::new(aws_client))
+        }
+        "file" => {
+            let file_config = config.file.as_ref().ok_or_else(|| {
+                anyhow::anyhow!("File configuration not found. Set ASR_FILE_DIR or configure [file] section")
+            })?;
+            let file_backend = crate::backends::FileBackend::new(&file_config.directory)
+                .context("Failed to create file backend")?;
+            Ok(Box::new(file_backend))
         }
         "vault" | _ => {
             let vault_config = config.vault.as_ref().ok_or_else(|| {

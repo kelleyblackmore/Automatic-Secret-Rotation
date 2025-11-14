@@ -12,6 +12,10 @@ token = "root"
 # KV v2 mount point in Vault
 mount = "secret"
 
+# Optional: File backend for local storage (useful for testing)
+# [file]
+# directory = "~/.asr/secrets"
+
 [rotation]
 # Default rotation period in months
 period_months = 6

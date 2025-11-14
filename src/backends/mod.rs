@@ -3,10 +3,12 @@
 //! This module provides abstractions and implementations for different secret backends.
 
 mod aws_secrets;
+mod file;
 mod secret_backend;
 mod vault;
 
 pub use aws_secrets::AwsSecretsClient;
+pub use file::FileBackend;
 pub use secret_backend::SecretBackend;
 pub use vault::{VaultBackend, VaultClient};
 
@@ -16,6 +18,7 @@ pub use vault::{VaultBackend, VaultClient};
 pub enum BackendType {
     Vault,
     Aws,
+    File,
 }
 
 impl std::str::FromStr for BackendType {
@@ -25,7 +28,8 @@ impl std::str::FromStr for BackendType {
         match s.to_lowercase().as_str() {
             "vault" => Ok(BackendType::Vault),
             "aws" => Ok(BackendType::Aws),
-            _ => Err(format!("Unknown backend type: {}. Supported: vault, aws", s)),
+            "file" => Ok(BackendType::File),
+            _ => Err(format!("Unknown backend type: {}. Supported: vault, aws, file", s)),
         }
     }
 }
