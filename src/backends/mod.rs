@@ -29,11 +29,13 @@ impl std::str::FromStr for BackendType {
             "vault" => Ok(BackendType::Vault),
             "aws" => Ok(BackendType::Aws),
             "file" => Ok(BackendType::File),
-            _ => Err(format!("Unknown backend type: {}. Supported: vault, aws, file", s)),
+            _ => Err(format!(
+                "Unknown backend type: {}. Supported: vault, aws, file",
+                s
+            )),
         }
     }
 }
 
 /// Type alias for backend trait object
 pub type Backend = Box<dyn SecretBackend>;
-

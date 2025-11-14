@@ -29,11 +29,13 @@ impl std::str::FromStr for TargetType {
         match s.to_lowercase().as_str() {
             "postgres" | "postgresql" => Ok(TargetType::Postgres),
             "api" => Ok(TargetType::Api),
-            _ => Err(format!("Unknown target type: {}. Supported: postgres, api", s)),
+            _ => Err(format!(
+                "Unknown target type: {}. Supported: postgres, api",
+                s
+            )),
         }
     }
 }
 
 /// Type alias for target trait object
 pub type TargetInstance = Box<dyn Target>;
-

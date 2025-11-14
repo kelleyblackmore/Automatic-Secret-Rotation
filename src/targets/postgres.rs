@@ -14,10 +14,7 @@ pub struct PostgresTarget {
 
 impl PostgresTarget {
     /// Create a new PostgresTarget with admin credentials
-    pub async fn new(
-        config: &PostgresTargetConfig,
-        admin_password: &str,
-    ) -> Result<Self> {
+    pub async fn new(config: &PostgresTargetConfig, admin_password: &str) -> Result<Self> {
         info!(
             "Connecting to PostgreSQL at {}:{}",
             config.host, config.port
@@ -106,7 +103,12 @@ impl Target for PostgresTarget {
         Ok(())
     }
 
-    async fn verify_connection(&self, username: &str, password: &str, database: Option<&str>) -> Result<()> {
+    async fn verify_connection(
+        &self,
+        username: &str,
+        password: &str,
+        database: Option<&str>,
+    ) -> Result<()> {
         info!("Verifying connection for user: {}", username);
 
         let db_name = database.unwrap_or(&self.config.database);
@@ -148,7 +150,10 @@ mod tests {
 
     #[test]
     fn test_quote_identifier() {
-        assert_eq!(PostgresTarget::quote_identifier("test_user"), "\"test_user\"");
+        assert_eq!(
+            PostgresTarget::quote_identifier("test_user"),
+            "\"test_user\""
+        );
         assert_eq!(
             PostgresTarget::quote_identifier("user\"name"),
             "\"user\"\"name\""
@@ -173,4 +178,3 @@ mod tests {
         assert!(conn_str.contains("sslmode=prefer"));
     }
 }
-

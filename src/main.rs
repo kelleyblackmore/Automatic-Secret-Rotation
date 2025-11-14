@@ -25,7 +25,7 @@ async fn main() -> Result<()> {
         )
         .init();
 
-    // Parse CLI arguments  
+    // Parse CLI arguments
     use clap::Parser;
     let cli = cli::Cli::parse();
 

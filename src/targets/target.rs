@@ -7,9 +7,13 @@ pub trait Target: Send + Sync {
     async fn update_password(&self, username: &str, new_password: &str) -> Result<()>;
 
     /// Verify that the new password works (optional, may not be supported by all targets)
-    async fn verify_connection(&self, username: &str, password: &str, database: Option<&str>) -> Result<()>;
+    async fn verify_connection(
+        &self,
+        username: &str,
+        password: &str,
+        database: Option<&str>,
+    ) -> Result<()>;
 
     /// Get the target type name for display purposes
     fn target_type(&self) -> &'static str;
 }
-

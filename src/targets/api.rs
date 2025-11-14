@@ -33,11 +33,15 @@ impl ApiTarget {
     pub(crate) fn build_url(&self, username: &str) -> String {
         // Replace {username} placeholder if present
         let url = self.config.endpoint.replace("{username}", username);
-        
+
         if url.starts_with("http://") || url.starts_with("https://") {
             url
         } else {
-            format!("{}/{}", self.config.base_url.trim_end_matches('/'), url.trim_start_matches('/'))
+            format!(
+                "{}/{}",
+                self.config.base_url.trim_end_matches('/'),
+                url.trim_start_matches('/')
+            )
         }
     }
 }
@@ -52,12 +56,12 @@ impl Target for ApiTarget {
 
         // Build request body based on config
         let mut body = json!({});
-        
+
         // Set username field
         if let Some(ref username_field) = self.config.username_field {
             body[username_field] = json!(username);
         }
-        
+
         // Set password field
         body[&self.config.password_field] = json!(new_password);
 
@@ -79,9 +83,7 @@ impl Target for ApiTarget {
         };
 
         // Build request
-        let mut request = self.client
-            .request(method, &url)
-            .json(&body);
+        let mut request = self.client.request(method, &url).json(&body);
 
         // Add authentication headers if configured
         if let Some(ref auth_header) = self.config.auth_header {
@@ -96,27 +98,31 @@ impl Target for ApiTarget {
         }
 
         // Send request
-        let response = request
-            .send()
-            .await
-            .context("Failed to send API request")?;
+        let response = request.send().await.context("Failed to send API request")?;
 
         // Check response status
         let status = response.status();
         if !status.is_success() {
-            let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
-            anyhow::bail!(
-                "API request failed with status {}: {}",
-                status,
-                error_text
-            );
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            anyhow::bail!("API request failed with status {}: {}", status, error_text);
         }
 
-        info!("Successfully updated password via API for user: {}", username);
+        info!(
+            "Successfully updated password via API for user: {}",
+            username
+        );
         Ok(())
     }
 
-    async fn verify_connection(&self, _username: &str, _password: &str, _database: Option<&str>) -> Result<()> {
+    async fn verify_connection(
+        &self,
+        _username: &str,
+        _password: &str,
+        _database: Option<&str>,
+    ) -> Result<()> {
         // API targets may not support verification, or it could be done via a separate endpoint
         // For now, we'll skip verification for API targets
         info!("Verification not supported for API targets");
@@ -149,7 +155,7 @@ mod tests {
 
         let rt = tokio::runtime::Runtime::new().unwrap();
         let target = rt.block_on(ApiTarget::new(&config)).unwrap();
-        
+
         let url = target.build_url("testuser");
         assert_eq!(url, "https://api.example.com/users/testuser/password");
     }
@@ -170,7 +176,7 @@ mod tests {
 
         let rt = tokio::runtime::Runtime::new().unwrap();
         let target = rt.block_on(ApiTarget::new(&config)).unwrap();
-        
+
         let url = target.build_url("testuser");
         assert_eq!(url, "https://other.com/api/password");
     }
@@ -191,7 +197,7 @@ mod tests {
 
         let rt = tokio::runtime::Runtime::new().unwrap();
         let target = rt.block_on(ApiTarget::new(&config)).unwrap();
-        
+
         let url = target.build_url("testuser");
         assert_eq!(url, "https://api.example.com/password");
     }
@@ -212,9 +218,8 @@ mod tests {
 
         let rt = tokio::runtime::Runtime::new().unwrap();
         let target = rt.block_on(ApiTarget::new(&config)).unwrap();
-        
+
         let url = target.build_url("testuser");
         assert_eq!(url, "https://api.example.com/password");
     }
 }
-

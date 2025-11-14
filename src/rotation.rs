@@ -120,7 +120,11 @@ pub async fn rotate_secret_with_target(
     // Update target password if configured
     if let Some(target) = target {
         if let Some(username) = target_username {
-            info!("Updating {} password for user: {}", target.target_type(), username);
+            info!(
+                "Updating {} password for user: {}",
+                target.target_type(),
+                username
+            );
             target
                 .update_password(username, &new_secret)
                 .await
@@ -130,7 +134,9 @@ pub async fn rotate_secret_with_target(
             target
                 .verify_connection(username, &new_secret, None)
                 .await
-                .with_context(|| format!("Failed to verify new {} password", target.target_type()))?;
+                .with_context(|| {
+                    format!("Failed to verify new {} password", target.target_type())
+                })?;
         }
     }
 
@@ -166,7 +172,9 @@ pub async fn flag_for_rotation(
 ) -> Result<()> {
     info!(
         "Flagging secret at {} ({}) for rotation every {} months",
-        path, backend.backend_type(), period_months
+        path,
+        backend.backend_type(),
+        period_months
     );
 
     let mut metadata = HashMap::new();
@@ -179,10 +187,7 @@ pub async fn flag_for_rotation(
         .await
         .context("Failed to update metadata")?;
 
-    info!(
-        "Successfully flagged secret at {} for rotation",
-        path
-    );
+    info!("Successfully flagged secret at {} for rotation", path);
     Ok(())
 }
 

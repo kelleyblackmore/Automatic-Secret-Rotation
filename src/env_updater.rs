@@ -16,12 +16,12 @@ impl EnvUpdater {
         let home_dir = std::env::var("HOME")
             .context("HOME environment variable not set")?
             .into();
-        
+
         Ok(Self { home_dir })
     }
 
     /// Create an EnvUpdater for a specific home directory
-    /// 
+    ///
     /// This is useful for testing or when you need to update environment variables
     /// in a different user's home directory.
     #[cfg_attr(not(test), allow(dead_code))] // Used in tests
@@ -34,18 +34,13 @@ impl EnvUpdater {
         info!("Updating environment variable: {}", var_name);
 
         // Common shell config files
-        let config_files = vec![
-            ".bashrc",
-            ".bash_profile",
-            ".zshrc",
-            ".profile",
-        ];
+        let config_files = vec![".bashrc", ".bash_profile", ".zshrc", ".profile"];
 
         let mut updated_count = 0;
 
         for config_file in config_files {
             let config_path = self.home_dir.join(config_file);
-            
+
             if config_path.exists() {
                 match self.update_in_file(&config_path, var_name, new_value) {
                     Ok(true) => {
@@ -82,10 +77,11 @@ impl EnvUpdater {
 
         for line in content.lines() {
             let trimmed = line.trim();
-            
+
             // Check if this line exports our variable
-            if trimmed.starts_with(&export_pattern) || 
-               trimmed.starts_with(&format!("{}=", var_name)) {
+            if trimmed.starts_with(&export_pattern)
+                || trimmed.starts_with(&format!("{}=", var_name))
+            {
                 // Replace the line with the new value
                 new_content.push_str(&format!("export {}=\"{}\"\n", var_name, new_value));
                 found = true;
@@ -126,23 +122,18 @@ impl EnvUpdater {
     }
 
     /// Remove an environment variable from shell config files
-    /// 
+    ///
     /// Note: This is primarily used for testing. For production use, consider
     /// manually editing shell config files or using standard shell utilities.
     #[cfg(test)]
     pub fn remove_env_var(&self, var_name: &str) -> Result<()> {
         info!("Removing environment variable: {}", var_name);
 
-        let config_files = vec![
-            ".bashrc",
-            ".bash_profile",
-            ".zshrc",
-            ".profile",
-        ];
+        let config_files = vec![".bashrc", ".bash_profile", ".zshrc", ".profile"];
 
         for config_file in config_files {
             let config_path = self.home_dir.join(config_file);
-            
+
             if config_path.exists() {
                 self.remove_from_file(&config_path, var_name)?;
             }
@@ -163,7 +154,7 @@ impl EnvUpdater {
 
         for line in content.lines() {
             let trimmed = line.trim();
-            
+
             // Skip the auto-update comment and the next line (the export)
             if trimmed == "# Auto-updated by secret rotator" {
                 skip_next_line = true;
@@ -176,10 +167,11 @@ impl EnvUpdater {
                 new_content.push('\n');
                 continue;
             }
-            
+
             // Check if this line exports our variable
-            if trimmed.starts_with(&export_pattern) || 
-               trimmed.starts_with(&format!("{}=", var_name)) {
+            if trimmed.starts_with(&export_pattern)
+                || trimmed.starts_with(&format!("{}=", var_name))
+            {
                 // Skip this line (and reset skip flag if it was set)
                 skip_next_line = false;
                 continue;
@@ -219,7 +211,7 @@ mod tests {
 
         let content = fs::read_to_string(&bashrc)?;
         assert!(content.contains("export MY_SECRET=\"new_value\""));
-        
+
         Ok(())
     }
 
@@ -235,7 +227,7 @@ mod tests {
         let content = fs::read_to_string(&bashrc)?;
         assert!(content.contains("export MY_SECRET=\"new_value\""));
         assert!(!content.contains("old_value"));
-        
+
         Ok(())
     }
 
@@ -251,7 +243,7 @@ mod tests {
         let content = fs::read_to_string(&bashrc)?;
         assert!(!content.contains("MY_SECRET"));
         assert!(content.contains("# other config"));
-        
+
         Ok(())
     }
 }

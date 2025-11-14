@@ -73,17 +73,17 @@ pub enum Commands {
         /// Path to the secret
         path: String,
 
-    /// Also update target password (database, API, etc.)
-    #[arg(long)]
-    update_target: bool,
+        /// Also update target password (database, API, etc.)
+        #[arg(long)]
+        update_target: bool,
 
-    /// Target type (postgres, api) - defaults to postgres if not specified
-    #[arg(long)]
-    target_type: Option<String>,
+        /// Target type (postgres, api) - defaults to postgres if not specified
+        #[arg(long)]
+        target_type: Option<String>,
 
-    /// Target username/identifier to update (required if --update-target is set)
-    #[arg(long)]
-    target_username: Option<String>,
+        /// Target username/identifier to update (required if --update-target is set)
+        #[arg(long)]
+        target_username: Option<String>,
     },
 
     /// Automatically rotate all secrets that are due for rotation
@@ -212,13 +212,10 @@ pub async fn execute(cli: Cli) -> Result<()> {
         }
 
         Commands::Scan { path } => {
-            let secrets = rotation::scan_for_rotation(
-                backend.as_ref(),
-                &path,
-                config.rotation.period_months,
-            )
-            .await
-            .context("Failed to scan for secrets needing rotation")?;
+            let secrets =
+                rotation::scan_for_rotation(backend.as_ref(), &path, config.rotation.period_months)
+                    .await
+                    .context("Failed to scan for secrets needing rotation")?;
 
             if secrets.is_empty() {
                 println!("No secrets need rotation at this time");
@@ -255,25 +252,26 @@ pub async fn execute(cli: Cli) -> Result<()> {
                 .await
                 .context("Failed to rotate secret")?
             } else {
-                rotation::rotate_secret(
-                    backend.as_ref(),
-                    &path,
-                    config.rotation.secret_length,
-                )
-                .await
-                .context("Failed to rotate secret")?
+                rotation::rotate_secret(backend.as_ref(), &path, config.rotation.secret_length)
+                    .await
+                    .context("Failed to rotate secret")?
             };
 
             println!("Successfully rotated secret at: {}", path);
             if update_target {
-                let target_type_name = target.as_ref().map(|t| t.target_type()).unwrap_or("unknown");
-                println!("✓ Updated {} password for user: {}", target_type_name, target_username.as_deref().unwrap_or("unknown"));
+                let target_type_name = target
+                    .as_ref()
+                    .map(|t| t.target_type())
+                    .unwrap_or("unknown");
+                println!(
+                    "Updated {} password for user: {}",
+                    target_type_name,
+                    target_username.as_deref().unwrap_or("unknown")
+                );
             }
-            eprintln!(
-                "⚠️  WARNING: Secret value will be displayed. Ensure this output is secured."
-            );
+            eprintln!("WARNING: Secret value will be displayed. Ensure this output is secured.");
             println!("New secret value: {}", new_secret);
-            eprintln!("⚠️  Please update your application with the new secret and clear your terminal history.");
+            eprintln!("Please update your application with the new secret and clear your terminal history.");
         }
 
         Commands::Auto {
@@ -285,13 +283,10 @@ pub async fn execute(cli: Cli) -> Result<()> {
             if update_target && target.is_none() {
                 anyhow::bail!("Target configuration not found. Configure [targets.postgres] or [targets.api] section in config file");
             }
-            let secrets = rotation::scan_for_rotation(
-                backend.as_ref(),
-                &path,
-                config.rotation.period_months,
-            )
-            .await
-            .context("Failed to scan for secrets needing rotation")?;
+            let secrets =
+                rotation::scan_for_rotation(backend.as_ref(), &path, config.rotation.period_months)
+                    .await
+                    .context("Failed to scan for secrets needing rotation")?;
 
             if secrets.is_empty() {
                 println!("No secrets need rotation at this time");
@@ -313,13 +308,18 @@ pub async fn execute(cli: Cli) -> Result<()> {
                         println!("  [DRY RUN] Would update env var based on path");
                     }
                     if update_target {
-                        println!("  [DRY RUN] Would update target password (username from metadata)");
+                        println!(
+                            "  [DRY RUN] Would update target password (username from metadata)"
+                        );
                     }
                 } else {
                     // Try to get target username from metadata if update_target is enabled
                     let target_username = if update_target {
                         match backend.read_metadata(secret_path).await {
-                            Ok(metadata) => metadata.get("target_username").or_else(|| metadata.get("database_username")).cloned(),
+                            Ok(metadata) => metadata
+                                .get("target_username")
+                                .or_else(|| metadata.get("database_username"))
+                                .cloned(),
                             Err(_) => None,
                         }
                     } else {
@@ -335,6 +335,7 @@ pub async fn execute(cli: Cli) -> Result<()> {
                             target_username.as_deref(),
                         )
                         .await
+                        .with_context(|| format!("Failed to rotate secret: {}", secret_path))
                     } else {
                         rotation::rotate_secret(
                             backend.as_ref(),
@@ -342,17 +343,21 @@ pub async fn execute(cli: Cli) -> Result<()> {
                             config.rotation.secret_length,
                         )
                         .await
+                        .with_context(|| format!("Failed to rotate secret: {}", secret_path))
                     };
 
                     match new_value {
                         Ok(new_value) => {
-                            println!("✓ Rotated: {}", secret_path);
+                            println!("Rotated: {}", secret_path);
 
                             // Update target password if requested
                             if update_target && target_username.is_some() {
-                                let target_type_name = target.as_ref().map(|t| t.target_type()).unwrap_or("unknown");
+                                let target_type_name = target
+                                    .as_ref()
+                                    .map(|t| t.target_type())
+                                    .unwrap_or("unknown");
                                 println!(
-                                    "  ✓ Updated {} password for user: {}",
+                                    "  Updated {} password for user: {}",
                                     target_type_name,
                                     target_username.as_deref().unwrap_or("unknown")
                                 );
@@ -361,20 +366,21 @@ pub async fn execute(cli: Cli) -> Result<()> {
                             // Update environment variable if requested
                             if let Some(ref updater) = env_updater {
                                 // Convert path to env var name: myapp/database -> MYAPP_DATABASE
-                                let env_var_name = secret_path
-                                    .replace('/', "_")
-                                    .to_uppercase();
+                                let env_var_name = secret_path.replace('/', "_").to_uppercase();
 
                                 match updater.update_env_var(&env_var_name, &new_value) {
-                                    Ok(_) => println!("  ✓ Updated env var: {}", env_var_name),
+                                    Ok(_) => println!("  Updated env var: {}", env_var_name),
                                     Err(e) => {
-                                        eprintln!("  ✗ Failed to update env var {}: {}", env_var_name, e)
+                                        eprintln!(
+                                            "  Failed to update env var {}: {}",
+                                            env_var_name, e
+                                        )
                                     }
                                 }
                             }
                         }
                         Err(e) => {
-                            error!("✗ Failed to rotate {}: {}", secret_path, e);
+                            error!("Failed to rotate {}: {}", secret_path, e);
                         }
                     }
                 }
@@ -383,7 +389,7 @@ pub async fn execute(cli: Cli) -> Result<()> {
             if !dry_run {
                 println!("\nRotation complete!");
                 if update_env {
-                    println!("⚠️  Note: Reload your shell or run 'source ~/.bashrc' for env var changes to take effect");
+                    println!("  Note: Reload your shell or run 'source ~/.bashrc' for env var changes to take effect");
                 }
             }
         }
@@ -393,14 +399,12 @@ pub async fn execute(cli: Cli) -> Result<()> {
                 .read_secret(&path)
                 .await
                 .context("Failed to read secret")?;
-            eprintln!(
-                "⚠️  WARNING: Secret values will be displayed. Ensure this output is secured."
-            );
+            eprintln!("WARNING: Secret values will be displayed. Ensure this output is secured.");
             println!("Secret data:");
             for (key, value) in secret.data {
                 println!("  {}: {}", key, value);
             }
-            eprintln!("⚠️  Please clear your terminal history after viewing.");
+            eprintln!("  Please clear your terminal history after viewing.");
         }
 
         Commands::List { path } => {
@@ -409,7 +413,10 @@ pub async fn execute(cli: Cli) -> Result<()> {
                 .await
                 .context("Failed to list secrets")?;
             if secrets.is_empty() {
-                println!("No secrets found at path: {}", if path.is_empty() { "/" } else { &path });
+                println!(
+                    "No secrets found at path: {}",
+                    if path.is_empty() { "/" } else { &path }
+                );
             } else {
                 println!("Secrets at {}:", if path.is_empty() { "/" } else { &path });
                 for secret in secrets {
@@ -436,16 +443,24 @@ pub async fn execute(cli: Cli) -> Result<()> {
                 .with_context(|| format!("Key '{}' not found in secret", key))?;
 
             // Update the environment variable
-            let env_updater = env_updater::EnvUpdater::new()
-                .context("Failed to create EnvUpdater")?;
+            let env_updater =
+                env_updater::EnvUpdater::new().context("Failed to create EnvUpdater")?;
 
             env_updater
                 .update_env_var(&env_var, value)
                 .with_context(|| format!("Failed to update environment variable {}", env_var))?;
 
-            println!("✓ Updated environment variable '{}' in shell config files", env_var);
-            println!("  Value synced from {}: {} (key: {})", backend.backend_type(), vault_path, key);
-            println!("\n⚠️  Note: You need to reload your shell or run 'source ~/.bashrc' (or ~/.zshrc) for changes to take effect");
+            println!(
+                "Updated environment variable '{}' in shell config files",
+                env_var
+            );
+            println!(
+                "  Value synced from {}: {} (key: {})",
+                backend.backend_type(),
+                vault_path,
+                key
+            );
+            println!("\nNote: You need to reload your shell or run 'source ~/.bashrc' (or ~/.zshrc) for changes to take effect");
         }
 
         Commands::GenPassword {
@@ -468,24 +483,34 @@ pub async fn execute(cli: Cli) -> Result<()> {
                 .await
                 .context("Failed to write secret")?;
 
-            println!("✓ Generated new password and stored in {}", backend.backend_type());
+            println!(
+                "Generated new password and stored in {}",
+                backend.backend_type()
+            );
             println!("  Location: {}", vault_path);
             println!("  Key: {}", key);
             println!("  Length: {} characters", password_length);
 
             // Update local environment variable if specified
             if let Some(env_var_name) = env_var {
-                let env_updater = env_updater::EnvUpdater::new()
-                    .context("Failed to create EnvUpdater")?;
+                let env_updater =
+                    env_updater::EnvUpdater::new().context("Failed to create EnvUpdater")?;
 
                 env_updater
                     .update_env_var(&env_var_name, &new_password)
-                    .with_context(|| format!("Failed to update environment variable {}", env_var_name))?;
+                    .with_context(|| {
+                        format!("Failed to update environment variable {}", env_var_name)
+                    })?;
 
-                println!("✓ Updated environment variable '{}' in shell config files", env_var_name);
-                println!("\n⚠️  Note: You need to reload your shell or run 'source ~/.bashrc' (or ~/.zshrc) for changes to take effect");
+                println!(
+                    "Updated environment variable '{}' in shell config files",
+                    env_var_name
+                );
+                println!("\nNote: You need to reload your shell or run 'source ~/.bashrc' (or ~/.zshrc) for changes to take effect");
             } else {
-                println!("\n💡 Tip: Use --env-var to automatically update a local environment variable");
+                println!(
+                    "\nTip: Use --env-var to automatically update a local environment variable"
+                );
             }
         }
     }
@@ -503,20 +528,22 @@ async fn create_target(
     if let Some(ref targets_config) = config.targets {
         // Try PostgreSQL target
         if let Some(ref postgres_config) = targets_config.postgres {
-            return Ok(Some(create_postgres_target(postgres_config, backend).await?));
+            return Ok(Some(
+                create_postgres_target(postgres_config, backend).await?,
+            ));
         }
-        
+
         // Try API target
         if let Some(ref api_config) = targets_config.api {
             return Ok(Some(create_api_target(api_config).await?));
         }
     }
-    
+
     // Fall back to legacy database config for backward compatibility
     if let Some(ref db_config) = config.database {
         return Ok(Some(create_postgres_target(db_config, backend).await?));
     }
-    
+
     Ok(None)
 }
 
@@ -526,25 +553,25 @@ async fn create_postgres_target(
     backend: &dyn crate::backends::SecretBackend,
 ) -> Result<TargetInstance> {
     // Get admin password from secret backend or direct config
-    let admin_password = if let Some(ref password_path) = config.password_path {
-        // Read from secret backend
-        let secret = backend
-            .read_secret(password_path)
-            .await
-            .context("Failed to read admin password from secret backend")?;
-        
-        // Try to find password key
-        secret
-            .data
-            .values()
-            .next()
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("No password found in secret at {}", password_path))?
-    } else if let Some(ref password) = config.password {
-        password.clone()
-    } else {
-        anyhow::bail!("PostgreSQL password not configured. Set password_path or password in config");
-    };
+    let admin_password =
+        if let Some(ref password_path) = config.password_path {
+            // Read from secret backend
+            let secret = backend
+                .read_secret(password_path)
+                .await
+                .context("Failed to read admin password from secret backend")?;
+
+            // Try to find password key
+            secret.data.values().next().cloned().ok_or_else(|| {
+                anyhow::anyhow!("No password found in secret at {}", password_path)
+            })?
+        } else if let Some(ref password) = config.password {
+            password.clone()
+        } else {
+            anyhow::bail!(
+                "PostgreSQL password not configured. Set password_path or password in config"
+            );
+        };
 
     let target = crate::targets::PostgresTarget::new(config, &admin_password)
         .await
@@ -554,9 +581,7 @@ async fn create_postgres_target(
 }
 
 /// Create an API target instance
-async fn create_api_target(
-    config: &crate::config::ApiTargetConfig,
-) -> Result<TargetInstance> {
+async fn create_api_target(config: &crate::config::ApiTargetConfig) -> Result<TargetInstance> {
     let target = crate::targets::ApiTarget::new(config)
         .await
         .context("Failed to create API target")?;
@@ -569,16 +594,21 @@ async fn create_backend(config: &Config) -> Result<Backend> {
     match config.backend.as_str() {
         "aws" => {
             let aws_config = config.aws.as_ref().ok_or_else(|| {
-                anyhow::anyhow!("AWS configuration not found. Set AWS_REGION or configure [aws] section")
+                anyhow::anyhow!(
+                    "AWS configuration not found. Set AWS_REGION or configure [aws] section"
+                )
             })?;
-            let aws_client = crate::backends::AwsSecretsClient::new(Some(aws_config.region.clone()))
-                .await
-                .context("Failed to create AWS Secrets Manager client")?;
+            let aws_client =
+                crate::backends::AwsSecretsClient::new(Some(aws_config.region.clone()))
+                    .await
+                    .context("Failed to create AWS Secrets Manager client")?;
             Ok(Box::new(aws_client))
         }
         "file" => {
             let file_config = config.file.as_ref().ok_or_else(|| {
-                anyhow::anyhow!("File configuration not found. Set ASR_FILE_DIR or configure [file] section")
+                anyhow::anyhow!(
+                    "File configuration not found. Set ASR_FILE_DIR or configure [file] section"
+                )
             })?;
             let file_backend = crate::backends::FileBackend::new(&file_config.directory)
                 .context("Failed to create file backend")?;
@@ -614,4 +644,3 @@ async fn create_backend(config: &Config) -> Result<Backend> {
         }
     }
 }
-

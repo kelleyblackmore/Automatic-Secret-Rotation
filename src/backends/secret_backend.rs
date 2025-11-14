@@ -29,4 +29,3 @@ pub trait SecretBackend: Send + Sync {
     /// Get the backend type name for display purposes
     fn backend_type(&self) -> &'static str;
 }
-

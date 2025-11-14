@@ -11,4 +11,3 @@ pub mod targets;
 pub use backends::Backend;
 pub use config::Config;
 pub use rotation::{flag_for_rotation, generate_secret, rotate_secret, scan_for_rotation};
-

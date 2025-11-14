@@ -7,23 +7,23 @@ use std::path::Path;
 pub struct Config {
     #[serde(default = "default_backend")]
     pub backend: String,
-    
+
     #[serde(default)]
     pub vault: Option<VaultConfig>,
-    
+
     #[serde(default)]
     pub aws: Option<AwsConfig>,
-    
+
     #[serde(default)]
     pub file: Option<FileConfig>,
-    
+
     #[serde(default)]
     pub rotation: RotationConfig,
-    
+
     /// Legacy database config (deprecated, use targets.postgres instead)
     #[serde(default)]
     pub database: Option<PostgresTargetConfig>,
-    
+
     /// Target configurations for password updates
     #[serde(default)]
     pub targets: Option<TargetsConfig>,
@@ -52,7 +52,10 @@ pub struct FileConfig {
 }
 
 fn default_file_dir() -> String {
-    format!("{}/.asr/secrets", std::env::var("HOME").unwrap_or_else(|_| ".".to_string()))
+    format!(
+        "{}/.asr/secrets",
+        std::env::var("HOME").unwrap_or_else(|_| ".".to_string())
+    )
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,7 +63,7 @@ pub struct TargetsConfig {
     /// PostgreSQL target configuration
     #[serde(default)]
     pub postgres: Option<PostgresTargetConfig>,
-    
+
     /// API target configuration
     #[serde(default)]
     pub api: Option<ApiTargetConfig>,
@@ -88,35 +91,35 @@ pub struct PostgresTargetConfig {
 pub struct ApiTargetConfig {
     /// Base URL for the API (e.g., "https://api.example.com")
     pub base_url: String,
-    
+
     /// Endpoint path for password updates (e.g., "/api/v1/users/{username}/password")
     /// Use {username} as a placeholder that will be replaced
     pub endpoint: String,
-    
+
     /// HTTP method (default: POST)
     #[serde(default = "default_api_method")]
     pub method: String,
-    
+
     /// Field name in request body for password (default: "password")
     #[serde(default = "default_password_field")]
     pub password_field: String,
-    
+
     /// Field name in request body for username (optional, username will be added if set)
     #[serde(default)]
     pub username_field: Option<String>,
-    
+
     /// Additional fields to include in request body
     #[serde(default)]
     pub additional_fields: Option<std::collections::HashMap<String, String>>,
-    
+
     /// Authorization header value (e.g., "Bearer token123")
     #[serde(default)]
     pub auth_header: Option<String>,
-    
+
     /// Additional HTTP headers
     #[serde(default)]
     pub headers: Option<std::collections::HashMap<String, String>>,
-    
+
     /// Request timeout in seconds (default: 30)
     #[serde(default = "default_api_timeout")]
     pub timeout_seconds: u64,
@@ -208,8 +211,7 @@ impl Config {
 
         let aws = if backend == "aws" {
             Some(AwsConfig {
-                region: std::env::var("AWS_REGION")
-                    .unwrap_or_else(|_| "us-east-1".to_string()),
+                region: std::env::var("AWS_REGION").unwrap_or_else(|_| "us-east-1".to_string()),
             })
         } else {
             None
@@ -217,8 +219,7 @@ impl Config {
 
         let file = if backend == "file" {
             Some(FileConfig {
-                directory: std::env::var("ASR_FILE_DIR")
-                    .unwrap_or_else(|_| default_file_dir()),
+                directory: std::env::var("ASR_FILE_DIR").unwrap_or_else(|_| default_file_dir()),
             })
         } else {
             None
@@ -237,20 +238,17 @@ impl Config {
 
         let database = if std::env::var("DB_HOST").is_ok() {
             Some(PostgresTargetConfig {
-                host: std::env::var("DB_HOST")
-                    .context("DB_HOST environment variable not set")?,
+                host: std::env::var("DB_HOST").context("DB_HOST environment variable not set")?,
                 port: std::env::var("DB_PORT")
                     .ok()
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(5432),
-                database: std::env::var("DB_NAME")
-                    .unwrap_or_else(|_| "postgres".to_string()),
+                database: std::env::var("DB_NAME").unwrap_or_else(|_| "postgres".to_string()),
                 username: std::env::var("DB_USERNAME")
                     .context("DB_USERNAME environment variable not set")?,
                 password_path: std::env::var("DB_PASSWORD_PATH").ok(),
                 password: std::env::var("DB_PASSWORD").ok(),
-                ssl_mode: std::env::var("DB_SSL_MODE")
-                    .unwrap_or_else(|_| "prefer".to_string()),
+                ssl_mode: std::env::var("DB_SSL_MODE").unwrap_or_else(|_| "prefer".to_string()),
             })
         } else {
             None
@@ -313,7 +311,7 @@ mod tests {
     fn test_config_from_file() {
         let temp_dir = TempDir::new().unwrap();
         let config_path = temp_dir.path().join("config.toml");
-        
+
         let config_content = r#"
 backend = "vault"
 [vault]
@@ -326,10 +324,13 @@ period_months = 12
 secret_length = 64
 "#;
         fs::write(&config_path, config_content).unwrap();
-        
+
         let config = Config::from_file(&config_path).unwrap();
         assert_eq!(config.backend, "vault");
-        assert_eq!(config.vault.as_ref().unwrap().address, "http://localhost:8200");
+        assert_eq!(
+            config.vault.as_ref().unwrap().address,
+            "http://localhost:8200"
+        );
         assert_eq!(config.rotation.period_months, 12);
         assert_eq!(config.rotation.secret_length, 64);
     }
@@ -338,14 +339,14 @@ secret_length = 64
     fn test_config_from_file_with_aws() {
         let temp_dir = TempDir::new().unwrap();
         let config_path = temp_dir.path().join("config.toml");
-        
+
         let config_content = r#"
 backend = "aws"
 [aws]
 region = "us-west-2"
 "#;
         fs::write(&config_path, config_content).unwrap();
-        
+
         let config = Config::from_file(&config_path).unwrap();
         assert_eq!(config.backend, "aws");
         assert_eq!(config.aws.as_ref().unwrap().region, "us-west-2");
@@ -355,14 +356,14 @@ region = "us-west-2"
     fn test_config_from_file_with_file_backend() {
         let temp_dir = TempDir::new().unwrap();
         let config_path = temp_dir.path().join("config.toml");
-        
+
         let config_content = r#"
 backend = "file"
 [file]
 directory = "/tmp/test-secrets"
 "#;
         fs::write(&config_path, config_content).unwrap();
-        
+
         let config = Config::from_file(&config_path).unwrap();
         assert_eq!(config.backend, "file");
         assert_eq!(config.file.as_ref().unwrap().directory, "/tmp/test-secrets");
@@ -372,7 +373,7 @@ directory = "/tmp/test-secrets"
     fn test_config_from_file_with_targets() {
         let temp_dir = TempDir::new().unwrap();
         let config_path = temp_dir.path().join("config.toml");
-        
+
         let config_content = r#"
 backend = "vault"
 [vault]
@@ -388,7 +389,7 @@ password_path = "admin/password"
 ssl_mode = "require"
 "#;
         fs::write(&config_path, config_content).unwrap();
-        
+
         let config = Config::from_file(&config_path).unwrap();
         assert!(config.targets.is_some());
         let postgres = config.targets.as_ref().unwrap().postgres.as_ref().unwrap();
@@ -404,7 +405,7 @@ ssl_mode = "require"
     fn test_config_from_file_with_api_target() {
         let temp_dir = TempDir::new().unwrap();
         let config_path = temp_dir.path().join("config.toml");
-        
+
         let config_content = r#"
 backend = "vault"
 [vault]
@@ -421,7 +422,7 @@ timeout_seconds = 60
 auth_header = "Bearer token123"
 "#;
         fs::write(&config_path, config_content).unwrap();
-        
+
         let config = Config::from_file(&config_path).unwrap();
         let api = config.targets.as_ref().unwrap().api.as_ref().unwrap();
         assert_eq!(api.base_url, "https://api.example.com");
@@ -437,7 +438,7 @@ auth_header = "Bearer token123"
     fn test_config_defaults() {
         let temp_dir = TempDir::new().unwrap();
         let config_path = temp_dir.path().join("config.toml");
-        
+
         let config_content = r#"
 backend = "vault"
 [vault]
@@ -445,7 +446,7 @@ address = "http://localhost:8200"
 token = "test-token"
 "#;
         fs::write(&config_path, config_content).unwrap();
-        
+
         let config = Config::from_file(&config_path).unwrap();
         // Test defaults
         assert_eq!(config.vault.as_ref().unwrap().mount, "secret");
@@ -457,9 +458,9 @@ token = "test-token"
     fn test_config_create_sample() {
         let temp_dir = TempDir::new().unwrap();
         let config_path = temp_dir.path().join("sample.toml");
-        
+
         Config::create_sample(&config_path).unwrap();
-        
+
         assert!(config_path.exists());
         let config = Config::from_file(&config_path).unwrap();
         assert_eq!(config.backend, "vault");
@@ -472,7 +473,7 @@ token = "test-token"
     fn test_postgres_config_defaults() {
         let temp_dir = TempDir::new().unwrap();
         let config_path = temp_dir.path().join("config.toml");
-        
+
         let config_content = r#"
 [targets.postgres]
 host = "localhost"
@@ -480,7 +481,7 @@ database = "testdb"
 username = "admin"
 "#;
         fs::write(&config_path, config_content).unwrap();
-        
+
         let config = Config::from_file(&config_path).unwrap();
         let postgres = config.targets.as_ref().unwrap().postgres.as_ref().unwrap();
         assert_eq!(postgres.port, 5432); // default port
@@ -491,14 +492,14 @@ username = "admin"
     fn test_api_config_defaults() {
         let temp_dir = TempDir::new().unwrap();
         let config_path = temp_dir.path().join("config.toml");
-        
+
         let config_content = r#"
 [targets.api]
 base_url = "https://api.example.com"
 endpoint = "/password"
 "#;
         fs::write(&config_path, config_content).unwrap();
-        
+
         let config = Config::from_file(&config_path).unwrap();
         let api = config.targets.as_ref().unwrap().api.as_ref().unwrap();
         assert_eq!(api.method, "POST"); // default method

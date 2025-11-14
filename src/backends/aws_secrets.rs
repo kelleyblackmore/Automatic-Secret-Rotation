@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use aws_config::Region;
-use aws_sdk_secretsmanager::Client as SecretsManagerClient;
 use aws_sdk_secretsmanager::types::Tag;
+use aws_sdk_secretsmanager::Client as SecretsManagerClient;
 use std::collections::HashMap;
 use tracing::{debug, info};
 
@@ -18,8 +18,7 @@ impl AwsSecretsClient {
     /// Create a new AWS Secrets Manager client
     pub async fn new(region: Option<String>) -> Result<Self> {
         let region_str = region.unwrap_or_else(|| {
-            std::env::var("AWS_REGION")
-                .unwrap_or_else(|_| "us-east-1".to_string())
+            std::env::var("AWS_REGION").unwrap_or_else(|_| "us-east-1".to_string())
         });
 
         // Load AWS config from environment and explicitly set the region
@@ -66,7 +65,9 @@ impl SecretBackend for AwsSecretsClient {
             .secret_id(path)
             .send()
             .await
-            .with_context(|| format!("Failed to read secret '{}' from AWS Secrets Manager", path))?;
+            .with_context(|| {
+                format!("Failed to read secret '{}' from AWS Secrets Manager", path)
+            })?;
 
         // Parse the secret string as JSON
         let secret_string = response
@@ -89,15 +90,18 @@ impl SecretBackend for AwsSecretsClient {
             .map(|r| self.tags_to_metadata(r.tags()))
             .unwrap_or_default();
 
-        Ok(SecretData { data, metadata: Some(metadata) })
+        Ok(SecretData {
+            data,
+            metadata: Some(metadata),
+        })
     }
 
     async fn write_secret(&self, path: &str, data: HashMap<String, String>) -> Result<()> {
         debug!("Writing secret to AWS Secrets Manager: {}", path);
 
         // Convert HashMap to JSON string
-        let secret_string = serde_json::to_string(&data)
-            .context("Failed to serialize secret data to JSON")?;
+        let secret_string =
+            serde_json::to_string(&data).context("Failed to serialize secret data to JSON")?;
 
         // Check if secret exists
         let exists = self
@@ -116,8 +120,13 @@ impl SecretBackend for AwsSecretsClient {
                 .secret_string(&secret_string)
                 .send()
                 .await
-                .with_context(|| format!("Failed to update secret '{}' in AWS Secrets Manager", path))?;
-            info!("Successfully updated secret '{}' in AWS Secrets Manager", path);
+                .with_context(|| {
+                    format!("Failed to update secret '{}' in AWS Secrets Manager", path)
+                })?;
+            info!(
+                "Successfully updated secret '{}' in AWS Secrets Manager",
+                path
+            );
         } else {
             // Create new secret
             self.client
@@ -126,8 +135,13 @@ impl SecretBackend for AwsSecretsClient {
                 .secret_string(&secret_string)
                 .send()
                 .await
-                .with_context(|| format!("Failed to create secret '{}' in AWS Secrets Manager", path))?;
-            info!("Successfully created secret '{}' in AWS Secrets Manager", path);
+                .with_context(|| {
+                    format!("Failed to create secret '{}' in AWS Secrets Manager", path)
+                })?;
+            info!(
+                "Successfully created secret '{}' in AWS Secrets Manager",
+                path
+            );
         }
 
         Ok(())
@@ -183,7 +197,10 @@ impl SecretBackend for AwsSecretsClient {
     }
 
     async fn list_secrets(&self, path: &str) -> Result<Vec<String>> {
-        debug!("Listing secrets in AWS Secrets Manager with prefix: {}", path);
+        debug!(
+            "Listing secrets in AWS Secrets Manager with prefix: {}",
+            path
+        );
 
         let mut secrets = Vec::new();
         let mut next_token: Option<String> = None;
@@ -244,10 +261,7 @@ mod tests {
         };
 
         let tags = vec![
-            Tag::builder()
-                .key("rotation_enabled")
-                .value("true")
-                .build(),
+            Tag::builder().key("rotation_enabled").value("true").build(),
             Tag::builder()
                 .key("last_rotated")
                 .value("2023-01-01T00:00:00Z")
@@ -264,7 +278,10 @@ mod tests {
             metadata.get("last_rotated"),
             Some(&"2023-01-01T00:00:00Z".to_string())
         );
-        assert_eq!(metadata.get("target_username"), Some(&"testuser".to_string()));
+        assert_eq!(
+            metadata.get("target_username"),
+            Some(&"testuser".to_string())
+        );
     }
 
     #[test]
@@ -288,7 +305,10 @@ mod tests {
 
         let mut metadata = HashMap::new();
         metadata.insert("rotation_enabled".to_string(), "true".to_string());
-        metadata.insert("last_rotated".to_string(), "2023-01-01T00:00:00Z".to_string());
+        metadata.insert(
+            "last_rotated".to_string(),
+            "2023-01-01T00:00:00Z".to_string(),
+        );
         metadata.insert("target_username".to_string(), "testuser".to_string());
 
         let tags = client.metadata_to_tags(&metadata);
@@ -303,15 +323,15 @@ mod tests {
             })
             .collect();
 
-        assert_eq!(
-            tag_map.get("rotation_enabled"),
-            Some(&"true".to_string())
-        );
+        assert_eq!(tag_map.get("rotation_enabled"), Some(&"true".to_string()));
         assert_eq!(
             tag_map.get("last_rotated"),
             Some(&"2023-01-01T00:00:00Z".to_string())
         );
-        assert_eq!(tag_map.get("target_username"), Some(&"testuser".to_string()));
+        assert_eq!(
+            tag_map.get("target_username"),
+            Some(&"testuser".to_string())
+        );
     }
 
     #[test]
@@ -341,4 +361,3 @@ mod tests {
         SecretsManagerClient::new(&config)
     }
 }
-

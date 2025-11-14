@@ -230,10 +230,9 @@ impl VaultBackend {
 impl SecretBackend for VaultBackend {
     async fn read_secret(&self, path: &str) -> Result<SecretData> {
         let vault_data = self.client.read_secret(&self.mount, path).await?;
-        
-        let metadata = vault_data.metadata
-            .and_then(|m| m.custom_metadata);
-        
+
+        let metadata = vault_data.metadata.and_then(|m| m.custom_metadata);
+
         Ok(SecretData {
             data: vault_data.data,
             metadata: metadata.clone(),
@@ -245,7 +244,9 @@ impl SecretBackend for VaultBackend {
     }
 
     async fn update_metadata(&self, path: &str, metadata: HashMap<String, String>) -> Result<()> {
-        self.client.update_metadata(&self.mount, path, metadata).await
+        self.client
+            .update_metadata(&self.mount, path, metadata)
+            .await
     }
 
     async fn read_metadata(&self, path: &str) -> Result<HashMap<String, String>> {
@@ -280,7 +281,8 @@ mod tests {
         let client = VaultClient::new(
             "http://localhost:8200".to_string(),
             "test-token".to_string(),
-        ).unwrap();
+        )
+        .unwrap();
 
         // Test read URL
         let read_url = format!("{}/v1/{}/data/{}", client.address, "secret", "myapp/db");
@@ -292,21 +294,31 @@ mod tests {
 
         // Test metadata URL
         let meta_url = format!("{}/v1/{}/metadata/{}", client.address, "secret", "myapp/db");
-        assert_eq!(meta_url, "http://localhost:8200/v1/secret/metadata/myapp/db");
+        assert_eq!(
+            meta_url,
+            "http://localhost:8200/v1/secret/metadata/myapp/db"
+        );
     }
 
     #[test]
     fn test_vault_secret_metadata_parsing() {
         let mut custom_meta = HashMap::new();
         custom_meta.insert("rotation_enabled".to_string(), "true".to_string());
-        custom_meta.insert("last_rotated".to_string(), "2023-01-01T00:00:00Z".to_string());
+        custom_meta.insert(
+            "last_rotated".to_string(),
+            "2023-01-01T00:00:00Z".to_string(),
+        );
 
         let metadata = SecretMetadata {
             custom_metadata: Some(custom_meta.clone()),
         };
 
         assert_eq!(
-            metadata.custom_metadata.as_ref().unwrap().get("rotation_enabled"),
+            metadata
+                .custom_metadata
+                .as_ref()
+                .unwrap()
+                .get("rotation_enabled"),
             Some(&"true".to_string())
         );
     }
@@ -327,7 +339,10 @@ mod tests {
             }),
         };
 
-        assert_eq!(secret_data.data.get("password"), Some(&"secret123".to_string()));
+        assert_eq!(
+            secret_data.data.get("password"),
+            Some(&"secret123".to_string())
+        );
         assert_eq!(secret_data.data.get("username"), Some(&"admin".to_string()));
         assert!(secret_data.metadata.is_some());
     }
