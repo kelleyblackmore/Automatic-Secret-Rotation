@@ -3,11 +3,11 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'        # Trigger on version tags like v1.0.0
+      - 'v*'
   workflow_dispatch:
 
 permissions:
-  contents: write   # Needed to create releases
+  contents: write
 
 jobs:
   build-release:
@@ -21,18 +21,17 @@ jobs:
             target: x86_64-unknown-linux-gnu
             asset_name: asr-linux-x86_64
 
-          # Uncomment once you’re happy with the main flow
-          # - os: ubuntu-latest
-          #   target: aarch64-unknown-linux-gnu
-          #   asset_name: asr-linux-arm64
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            asset_name: asr-linux-arm64
 
           - os: macos-latest
             target: aarch64-apple-darwin
             asset_name: asr-darwin-arm64
 
-          # - os: macos-latest
-          #   target: x86_64-apple-darwin
-          #   asset_name: asr-darwin-x86_64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            asset_name: asr-darwin-x86_64
 
     env:
       CARGO_TERM_COLOR: always
@@ -46,23 +45,21 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      # Only needed if/when you bring back Linux ARM64
-      # - name: Install cross toolchain (Linux ARM64)
-      #   if: matrix.os == 'ubuntu-latest' && matrix.target == 'aarch64-unknown-linux-gnu'
-      #   run: |
-      #     sudo dpkg --add-architecture arm64
-      #     sudo apt-get update
-      #     sudo apt-get install -y \
-      #       gcc-aarch64-linux-gnu \
-      #       libc6-dev-arm64-cross \
-      #       libssl-dev:arm64 \
-      #       pkg-config
-      #     echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
-      #     echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
-      #     echo "PKG_CONFIG_ALLOW_CROSS=1" >> $GITHUB_ENV
-      #     echo "OPENSSL_DIR=/usr" >> $GITHUB_ENV
-      #     echo "OPENSSL_LIB_DIR=/usr/lib/aarch64-linux-gnu" >> $GITHUB_ENV
-      #     echo "OPENSSL_INCLUDE_DIR=/usr/include" >> $GITHUB_ENV
+      - name: Install cross toolchain for Linux ARM64
+        if: matrix.os == 'ubuntu-latest' && matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo dpkg --add-architecture arm64
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc-aarch64-linux-gnu \
+            libc6-dev-arm64-cross \
+            libssl-dev:arm64 \
+            pkg-config
+          echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          echo "OPENSSL_LIB_DIR=/usr/lib/aarch64-linux-gnu" >> $GITHUB_ENV
+          echo "OPENSSL_INCLUDE_DIR=/usr/include" >> $GITHUB_ENV
+          echo "PKG_CONFIG_ALLOW_CROSS=1" >> $GITHUB_ENV
 
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
@@ -70,17 +67,10 @@ jobs:
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }} --locked
 
-      - name: Strip binary (Linux)
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          strip target/${{ matrix.target }}/release/asr || true
+      - name: Strip binary
+        run: strip target/${{ matrix.target }}/release/asr || true
 
-      - name: Strip binary (macOS)
-        if: matrix.os == 'macos-latest'
-        run: |
-          strip target/${{ matrix.target }}/release/asr || true
-
-      - name: Rename binary for release
+      - name: Package binary
         run: |
           cp target/${{ matrix.target }}/release/asr ${{ matrix.asset_name }}
           chmod +x ${{ matrix.asset_name }}
@@ -93,13 +83,13 @@ jobs:
           retention-days: 7
 
   create-release:
-    name: Create Release
+    name: Create GitHub Release
     needs: build-release
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Download all artifacts
@@ -109,41 +99,22 @@ jobs:
           merge-multiple: true
           path: release-assets
 
-      - name: List release assets
+      - name: List assets
         run: ls -lh release-assets/
 
-      - name: Get version from tag
-        id: get_version
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Release version: $VERSION"
+      - name: Extract version
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.ref_name }}
-          name: Release ${{ steps.get_version.outputs.version }}
-          body: |
-            ## Release ${{ steps.get_version.outputs.version }}
-
-            ### Downloads
-
-            - **Linux x86_64**: [asr-linux-x86_64](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/asr-linux-x86_64)
-            - **macOS ARM64**: [asr-darwin-arm64](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/asr-darwin-arm64)
-            <!-- Add back other links once you re-enable those builds -->
-
-            ### Installation
-
-            ```bash
-            curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | bash
-            ```
-
-            The installer will automatically download the appropriate binary for your platform.
-          files: |
-            release-assets/asr-linux-x86_64
-            release-assets/asr-darwin-arm64
-            # release-assets/asr-linux-arm64
-            # release-assets/asr-darwin-x86_64
+          name: "Release ${{ steps.version.outputs.version }}"
           draft: false
           prerelease: false
+          files: |
+            release-assets/asr-linux-x86_64
+            release-assets/asr-linux-arm64
+            release-assets/asr-darwin-x86_64
+            release-assets/asr-darwin-arm64
