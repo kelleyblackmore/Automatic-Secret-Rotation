@@ -51,8 +51,8 @@ The following commands intentionally display secrets in cleartext:
 
 **Warnings Added**:
 ```
-⚠️  WARNING: Secret value will be displayed. Ensure this output is secured.
-⚠️  Please update your application with the new secret and clear your terminal history.
+WARNING: Secret value will be displayed. Ensure this output is secured.
+WARNING: Please update your application with the new secret and clear your terminal history.
 ```
 
 #### CodeQL Findings
@@ -140,12 +140,12 @@ asr rotate app/password
 ### Conclusion
 
 The automatic secret rotation tool implements industry-standard security practices:
-- ✅ Cryptographically secure random generation
-- ✅ Secure communication with Vault (TLS support)
-- ✅ No secret storage in metadata
-- ✅ Proper error handling without secret leakage
-- ✅ Clear security warnings when secrets are displayed
-- ✅ Comprehensive security documentation
+- Cryptographically secure random generation
+- Secure communication with Vault (TLS support)
+- No secret storage in metadata
+- Proper error handling without secret leakage
+- Clear security warnings when secrets are displayed
+- Comprehensive security documentation
 
 The intentional cleartext output for `rotate` and `read` commands is a necessary feature for a CLI tool, with appropriate warnings and documentation to ensure users understand the security implications.
 

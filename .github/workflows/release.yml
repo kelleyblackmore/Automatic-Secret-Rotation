@@ -1,5 +1,4 @@
 name: Release
-
 on:
   push:
     tags:
@@ -20,15 +19,12 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             asset_name: asr-linux-x86_64
-
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             asset_name: asr-linux-arm64
-
           - os: macos-latest
             target: aarch64-apple-darwin
             asset_name: asr-darwin-arm64
-
           - os: macos-latest
             target: x86_64-apple-darwin
             asset_name: asr-darwin-x86_64
@@ -45,30 +41,39 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      # Install the cross‑compilation toolchain and set required environment
       - name: Install cross toolchain for Linux ARM64
         if: matrix.os == 'ubuntu-latest' && matrix.target == 'aarch64-unknown-linux-gnu'
         run: |
           sudo dpkg --add-architecture arm64
           sudo apt-get update
+          # install the AArch64 compiler and libraries
           sudo apt-get install -y \
             gcc-aarch64-linux-gnu \
             libc6-dev-arm64-cross \
             libssl-dev:arm64 \
-            pkg-config
+            pkg-config \
+            pkg-config-aarch64-linux-gnu
+          # export environment variables so Cargo's build scripts can find the right tools
           echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
           echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          echo "PKG_CONFIG_ALLOW_CROSS=1" >> $GITHUB_ENV
+          echo "PKG_CONFIG_aarch64_unknown_linux_gnu=aarch64-linux-gnu-pkg-config" >> $GITHUB_ENV
+          # explicitly set OpenSSL search paths
+          echo "OPENSSL_DIR=/usr" >> $GITHUB_ENV
           echo "OPENSSL_LIB_DIR=/usr/lib/aarch64-linux-gnu" >> $GITHUB_ENV
           echo "OPENSSL_INCLUDE_DIR=/usr/include" >> $GITHUB_ENV
-          echo "PKG_CONFIG_ALLOW_CROSS=1" >> $GITHUB_ENV
 
       - name: Cache cargo build
+        # Use rust-cache to speed up subsequent builds. A cache miss on the first run is expected.
         uses: Swatinem/rust-cache@v2
 
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }} --locked
 
       - name: Strip binary
-        run: strip target/${{ matrix.target }}/release/asr || true
+        run: |
+          strip target/${{ matrix.target }}/release/asr || true
 
       - name: Package binary
         run: |
@@ -81,17 +86,22 @@ jobs:
           name: ${{ matrix.asset_name }}
           path: ${{ matrix.asset_name }}
           retention-days: 7
+        # Mark this step as non-fatal so a temporary network outage when uploading
+        # does not fail the entire job. A failed upload will still surface in the logs.
+        continue-on-error: true
 
   create-release:
     name: Create GitHub Release
     needs: build-release
     runs-on: ubuntu-latest
+    # Only run on version tags (vX.Y.Z)
     if: startsWith(github.ref, 'refs/tags/v')
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
+      # Download all generated artifacts and flatten them into a single directory.
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -99,10 +109,10 @@ jobs:
           merge-multiple: true
           path: release-assets
 
-      - name: List assets
+      - name: List release assets
         run: ls -lh release-assets/
 
-      - name: Extract version
+      - name: Extract version from tag
         id: version
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
@@ -110,9 +120,26 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.ref_name }}
-          name: "Release ${{ steps.version.outputs.version }}"
+          name: Release ${{ steps.version.outputs.version }}
           draft: false
           prerelease: false
+          body: |
+            ## Release ${{ steps.version.outputs.version }}
+
+            ### Downloads
+
+            - **Linux x86_64**: [asr-linux-x86_64](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/asr-linux-x86_64)
+            - **Linux ARM64**: [asr-linux-arm64](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/asr-linux-arm64)
+            - **macOS x86_64**: [asr-darwin-x86_64](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/asr-darwin-x86_64)
+            - **macOS ARM64**: [asr-darwin-arm64](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/asr-darwin-arm64)
+
+            ### Installation
+
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | bash
+            ```
+
+            The installer will automatically download the appropriate binary for your platform.
           files: |
             release-assets/asr-linux-x86_64
             release-assets/asr-linux-arm64

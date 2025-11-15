@@ -6,14 +6,14 @@ This repository contains a complete Rust-based CLI tool for automatic secret rot
 
 ## Requirements Met
 
-✅ **Rust Implementation**: Built entirely in Rust with modern async/await support  
-✅ **CLI Tool**: Can be installed on any system as a standalone CLI application  
-✅ **Automation Platform Ready**: Works with Jenkins, GitLab CI, GitHub Actions, and other CI/CD platforms  
-✅ **HashiCorp Vault Integration**: Full integration with Vault KV v2 secrets engine  
-✅ **Secret Flagging**: Ability to flag secrets for rotation with configurable periods  
-✅ **6-Month Default Rotation**: Configurable rotation period with 6 months as default  
-✅ **Automated Rotation**: Can handle secret rotation in automation pipelines  
-✅ **Application Integration**: Designed to update secrets in applications and databases
+- **Rust Implementation**: Built entirely in Rust with modern async/await support  
+- **CLI Tool**: Can be installed on any system as a standalone CLI application  
+- **Automation Platform Ready**: Works with Jenkins, GitLab CI, GitHub Actions, and other CI/CD platforms  
+- **HashiCorp Vault Integration**: Full integration with Vault KV v2 secrets engine  
+- **Secret Flagging**: Ability to flag secrets for rotation with configurable periods  
+- **6-Month Default Rotation**: Configurable rotation period with 6 months as default  
+- **Automated Rotation**: Can handle secret rotation in automation pipelines  
+- **Application Integration**: Designed to update secrets in applications and databases
 
 ## Project Structure
 
