@@ -28,3 +28,5 @@ rotator-config.toml
 # Added by cargo
 
 /target
+.DS_Store
+src/.DS_Store
