@@ -55,7 +55,7 @@ impl PostgresTarget {
     }
 
     /// Build PostgreSQL connection string
-    fn build_connection_string(
+    pub fn build_connection_string(
         host: &str,
         port: u16,
         username: &str,
@@ -70,7 +70,7 @@ impl PostgresTarget {
     }
 
     /// Quote PostgreSQL identifier to prevent SQL injection
-    fn quote_identifier(identifier: &str) -> String {
+    pub fn quote_identifier(identifier: &str) -> String {
         // PostgreSQL identifiers are case-insensitive unless quoted
         // We'll quote them to be safe and preserve case
         format!("\"{}\"", identifier.replace("\"", "\"\""))
@@ -141,40 +141,5 @@ impl Target for PostgresTarget {
 
     fn target_type(&self) -> &'static str {
         "postgres"
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_quote_identifier() {
-        assert_eq!(
-            PostgresTarget::quote_identifier("test_user"),
-            "\"test_user\""
-        );
-        assert_eq!(
-            PostgresTarget::quote_identifier("user\"name"),
-            "\"user\"\"name\""
-        );
-    }
-
-    #[test]
-    fn test_build_connection_string() {
-        let conn_str = PostgresTarget::build_connection_string(
-            "localhost",
-            5432,
-            "postgres",
-            "password",
-            "postgres",
-            "prefer",
-        );
-        assert!(conn_str.contains("host=localhost"));
-        assert!(conn_str.contains("port=5432"));
-        assert!(conn_str.contains("user=postgres"));
-        assert!(conn_str.contains("password=password"));
-        assert!(conn_str.contains("dbname=postgres"));
-        assert!(conn_str.contains("sslmode=prefer"));
     }
 }

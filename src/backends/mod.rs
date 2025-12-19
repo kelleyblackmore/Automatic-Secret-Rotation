@@ -7,10 +7,12 @@ mod file;
 mod secret_backend;
 mod vault;
 
-pub use aws_secrets::AwsSecretsClient;
+#[allow(unused_imports)] // Used in tests
+pub use aws_secrets::{AwsSecretsClient, create_test_client};
 pub use file::FileBackend;
 pub use secret_backend::SecretBackend;
-pub use vault::{VaultBackend, VaultClient};
+#[allow(unused_imports)] // Used in tests
+pub use vault::{VaultBackend, VaultClient, SecretMetadata, VaultSecretData, VaultWriteRequest};
 
 /// Backend type enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
