@@ -5,8 +5,6 @@
 version = 2
 # Don't warn on unmaintained packages yet
 ignore = []
-# Severity threshold for vulnerabilities
-severity-threshold = "medium"
 
 [licenses]
 # Accept common permissive licenses
