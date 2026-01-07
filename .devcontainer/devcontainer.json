@@ -1,10 +1,6 @@
 {
-  "image": "mcr.microsoft.com/devcontainers/universal:2",
+  "image": "mcr.microsoft.com/devcontainers/rust:1-bookworm",
   "features": {
-    "ghcr.io/devcontainers/features/rust:1": {
-      "version": "latest",
-      "profile": "default"
-    },
     "ghcr.io/devcontainers-contrib/features/vault-asdf:2": {
       "version": "latest"
     }

@@ -1,0 +1,52 @@
+# cargo-deny configuration
+# See: https://embarkstudios.github.io/cargo-deny/
+
+[advisories]
+version = 2
+# Don't warn on unmaintained packages yet
+ignore = []
+# Severity threshold for vulnerabilities
+severity-threshold = "medium"
+
+[licenses]
+# Accept common permissive licenses
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-3-Clause",
+    "BSD-2-Clause",
+    "ISC",
+    "Unicode-DFS-2016",
+]
+confidence-threshold = 0.8
+exceptions = []
+
+[licenses.private]
+# Ignore private crates
+ignore = false
+
+[bans]
+# Check for duplicate dependencies
+multiple-versions = "warn"
+# Wildcards not allowed in dependencies
+wildcards = "deny"
+# Highlight deprecated crates
+highlight = "all"
+workspace-default-features = "allow"
+external-default-features = "allow"
+
+# List specific crates to deny (e.g., known security issues)
+deny = []
+
+# Skip certain crates from duplicate checking
+skip = []
+skip-tree = []
+
+[sources]
+# Ensure all dependencies come from trusted sources
+unknown-registry = "deny"
+unknown-git = "deny"
+
+[sources.allow-org]
+# Allow crates from GitHub orgs
+github = []
