@@ -1,4 +1,4 @@
-use secret_rotator::backends::{VaultClient, SecretMetadata, VaultSecretData, VaultWriteRequest};
+use secret_rotator::backends::{SecretMetadata, VaultClient, VaultSecretData, VaultWriteRequest};
 use std::collections::HashMap;
 
 #[test]

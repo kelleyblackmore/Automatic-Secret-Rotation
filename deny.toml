@@ -4,7 +4,9 @@
 [advisories]
 version = 2
 # Don't warn on unmaintained packages yet
-ignore = []
+ignore = [
+    "RUSTSEC-2025-0134",  # rustls-pemfile is unmaintained, comes from aws-sdk dependencies
+]
 
 [licenses]
 # Accept common permissive licenses
