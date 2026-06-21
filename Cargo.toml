@@ -1,7 +1,8 @@
 [package]
 name = "secret-rotator"
-version = "0.1.0"
+version = "0.5.0"
 edition = "2021"
+rust-version = "1.75"
 authors = ["Kelley Blackmore"]
 description = "Automatic secret rotation tool with HashiCorp Vault and AWS Secrets Manager support"
 license = "MIT"
@@ -11,24 +12,24 @@ name = "asr"
 path = "src/main.rs"
 
 [dependencies]
-clap = { version = "4.5", features = ["derive", "env"] }
-tokio = { version = "1.40", features = ["full"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+clap = { version = "4", features = ["derive", "env"] }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 reqwest = { version = "0.12", features = ["json"] }
-anyhow = "1.0"
-thiserror = "1.0"
+anyhow = "1"
+thiserror = "2"
 chrono = { version = "0.4", features = ["serde"] }
 toml = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-rand = "0.8"
-aws-sdk-secretsmanager = "1.0"
-aws-config = "1.0"
-aws-sdk-sts = "1.0"
+rand = "0.9"
+aws-sdk-secretsmanager = "1"
+aws-config = "1"
+aws-sdk-sts = "1"
 async-trait = "0.1"
 tokio-postgres = "0.7"
 
 [dev-dependencies]
-mockito = "1.5"
-tempfile = "3.12"
+mockito = "1"
+tempfile = "3"

@@ -54,7 +54,7 @@ impl PostgresTarget {
         })
     }
 
-    /// Build PostgreSQL connection string
+    /// Build PostgreSQL connection string with properly escaped values
     pub fn build_connection_string(
         host: &str,
         port: u16,
@@ -65,8 +65,22 @@ impl PostgresTarget {
     ) -> String {
         format!(
             "host={} port={} user={} password={} dbname={} sslmode={}",
-            host, port, username, password, database, ssl_mode
+            Self::quote_conn_value(host),
+            port,
+            Self::quote_conn_value(username),
+            Self::quote_conn_value(password),
+            Self::quote_conn_value(database),
+            ssl_mode,
         )
+    }
+
+    /// Quote a libpq connection string value, escaping backslashes and single quotes
+    fn quote_conn_value(value: &str) -> String {
+        if value.contains(|c: char| c == '\'' || c == '\\' || c == ' ' || c == '=') {
+            format!("'{}'", value.replace('\\', "\\\\").replace('\'', "\\'"))
+        } else {
+            value.to_string()
+        }
     }
 
     /// Quote PostgreSQL identifier to prevent SQL injection

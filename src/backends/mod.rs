@@ -14,9 +14,9 @@ pub use secret_backend::SecretBackend;
 #[allow(unused_imports)] // Used in tests
 pub use vault::{VaultBackend, VaultClient, SecretMetadata, VaultSecretData, VaultWriteRequest};
 
-/// Backend type enumeration
+/// Backend type enumeration for type-safe backend selection by library consumers
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)] // Reserved for future use (e.g., type-safe backend selection)
+#[allow(dead_code)]
 pub enum BackendType {
     Vault,
     Aws,

@@ -52,10 +52,10 @@ pub struct FileConfig {
 }
 
 fn default_file_dir() -> String {
-    format!(
-        "{}/.asr/secrets",
-        std::env::var("HOME").unwrap_or_else(|_| ".".to_string())
-    )
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_else(|_| ".".to_string());
+    format!("{}/.asr/secrets", home)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -224,6 +224,7 @@ impl Config {
         } else {
             None
         };
+
 
         let rotation = RotationConfig {
             period_months: std::env::var("ROTATION_PERIOD_MONTHS")

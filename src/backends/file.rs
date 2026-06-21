@@ -200,9 +200,11 @@ impl SecretBackend for FileBackend {
                 }
 
                 if file_path.is_file() {
-                    // Get relative path from base_dir
+                    // Get relative path from base_dir, normalizing to forward slashes
                     if let Ok(relative) = file_path.strip_prefix(&self.base_dir) {
-                        let secret_path = relative.to_string_lossy().to_string();
+                        let secret_path = relative
+                            .to_string_lossy()
+                            .replace(std::path::MAIN_SEPARATOR, "/");
                         secrets.push(secret_path);
                     }
                 } else if file_path.is_dir() {

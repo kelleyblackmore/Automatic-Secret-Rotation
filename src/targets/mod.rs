@@ -14,9 +14,9 @@ pub use api::ApiTarget;
 pub use postgres::PostgresTarget;
 pub use target::Target;
 
-/// Target type enumeration
+/// Target type enumeration for type-safe target selection by library consumers
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)] // Reserved for future use (e.g., type-safe target selection)
+#[allow(dead_code)]
 pub enum TargetType {
     Postgres,
     Api,

@@ -149,41 +149,36 @@ impl EnvUpdater {
             .with_context(|| format!("Failed to read {}", path.display()))?;
 
         let export_pattern = format!("export {}=", var_name);
-        let mut new_content = String::new();
-        let mut skip_next_line = false;
+        let bare_pattern = format!("{}=", var_name);
 
-        for line in content.lines() {
-            let trimmed = line.trim();
+        let lines: Vec<&str> = content.lines().collect();
+        let mut new_lines: Vec<&str> = Vec::with_capacity(lines.len());
+        let mut i = 0;
 
-            // Skip the auto-update comment and the next line (the export)
+        while i < lines.len() {
+            let trimmed = lines[i].trim();
+
+            // When we find the auto-update comment, check if the *next* non-empty line is
+            // our variable's export. If so, skip both. If not, keep the comment.
             if trimmed == "# Auto-updated by secret rotator" {
-                skip_next_line = true;
+                let next = lines.get(i + 1).map(|l| l.trim()).unwrap_or("");
+                if next.starts_with(&export_pattern) || next.starts_with(&bare_pattern) {
+                    i += 2; // skip comment + export
+                    continue;
+                }
+            }
+
+            if trimmed.starts_with(&export_pattern) || trimmed.starts_with(&bare_pattern) {
+                i += 1;
                 continue;
             }
 
-            // Skip commented out lines
-            if trimmed.starts_with('#') {
-                new_content.push_str(line);
-                new_content.push('\n');
-                continue;
-            }
+            new_lines.push(lines[i]);
+            i += 1;
+        }
 
-            // Check if this line exports our variable
-            if trimmed.starts_with(&export_pattern)
-                || trimmed.starts_with(&format!("{}=", var_name))
-            {
-                // Skip this line (and reset skip flag if it was set)
-                skip_next_line = false;
-                continue;
-            }
-
-            // If we were supposed to skip this line, skip it
-            if skip_next_line {
-                skip_next_line = false;
-                continue;
-            }
-
-            new_content.push_str(line);
+        let mut new_content = new_lines.join("\n");
+        if !new_content.is_empty() {
             new_content.push('\n');
         }
 
