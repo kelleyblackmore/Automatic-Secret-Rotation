@@ -214,10 +214,7 @@ impl VaultBackend {
 // ---------------------------------------------------------------------------
 
 /// Resolve a Vault client token using the configured auth method.
-async fn resolve_vault_token(
-    config: &crate::config::VaultConfig,
-    http: &Client,
-) -> Result<String> {
+async fn resolve_vault_token(config: &crate::config::VaultConfig, http: &Client) -> Result<String> {
     match config.auth_method.to_lowercase().as_str() {
         "token" | "" => auth_token(config),
         "approle" => auth_approle(config, http).await,
@@ -251,7 +248,11 @@ async fn auth_approle(config: &crate::config::VaultConfig, http: &Client) -> Res
     let secret_id = ar
         .secret_id
         .clone()
-        .or_else(|| ar.secret_id_env.as_ref().and_then(|e| std::env::var(e).ok()))
+        .or_else(|| {
+            ar.secret_id_env
+                .as_ref()
+                .and_then(|e| std::env::var(e).ok())
+        })
         .or_else(|| std::env::var("VAULT_SECRET_ID").ok())
         .context(
             "AppRole secret_id not found. Set vault.approle.secret_id, \
@@ -354,13 +355,9 @@ async fn auth_jwt(config: &crate::config::VaultConfig, http: &Client) -> Result<
     vault_extract_token(resp, "JWT/OIDC").await
 }
 
-async fn resolve_jwt_token(
-    cfg: &crate::config::VaultJwtConfig,
-    http: &Client,
-) -> Result<String> {
+async fn resolve_jwt_token(cfg: &crate::config::VaultJwtConfig, http: &Client) -> Result<String> {
     if let Some(ref env) = cfg.token_env {
-        return std::env::var(env)
-            .with_context(|| format!("JWT token env var '{}' not set", env));
+        return std::env::var(env).with_context(|| format!("JWT token env var '{}' not set", env));
     }
 
     // GitLab CI: CI_JOB_JWT_V2 (OIDC) preferred over the older CI_JOB_JWT
@@ -458,14 +455,11 @@ async fn build_signed_sts_request(vault_header: Option<&str>) -> Result<(String,
         .await
         .context("Failed to load AWS credentials for Vault aws_iam auth")?;
 
-    let region = aws_cfg
-        .region()
-        .map(|r| r.to_string())
-        .unwrap_or_else(|| {
-            std::env::var("AWS_REGION")
-                .or_else(|_| std::env::var("AWS_DEFAULT_REGION"))
-                .unwrap_or_else(|_| "us-east-1".to_string())
-        });
+    let region = aws_cfg.region().map(|r| r.to_string()).unwrap_or_else(|| {
+        std::env::var("AWS_REGION")
+            .or_else(|_| std::env::var("AWS_DEFAULT_REGION"))
+            .unwrap_or_else(|_| "us-east-1".to_string())
+    });
 
     let sts_body: &[u8] = b"Action=GetCallerIdentity&Version=2011-06-15";
     let sts_url = "https://sts.amazonaws.com/";
