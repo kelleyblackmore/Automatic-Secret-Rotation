@@ -647,6 +647,12 @@ async fn create_targets(
             if let Some(ref mysql) = named.mysql {
                 result.push(create_mysql_target(mysql, backend).await?);
             }
+            if let Some(ref gitlab) = named.gitlab {
+                result.push(create_gitlab_target(gitlab).await?);
+            }
+            if let Some(ref github) = named.github {
+                result.push(create_github_target(github).await?);
+            }
         }
         None => {
             // Fall back to legacy [database] config
@@ -667,6 +673,8 @@ async fn create_target_from_entry(
         TargetEntry::Postgres(pg) => create_postgres_target(pg, backend).await,
         TargetEntry::Api(api) => create_api_target(api).await,
         TargetEntry::Mysql(mysql) => create_mysql_target(mysql, backend).await,
+        TargetEntry::Gitlab(gitlab) => create_gitlab_target(gitlab).await,
+        TargetEntry::Github(github) => create_github_target(github).await,
     }
 }
 
@@ -722,6 +730,46 @@ async fn create_mysql_target(
     anyhow::bail!(
         "MySQL target support requires building with `--features mysql`.\n\
          Rebuild with: cargo install --git ... --features mysql"
+    )
+}
+
+#[cfg(feature = "gitlab")]
+async fn create_gitlab_target(
+    config: &crate::config::GitLabTargetConfig,
+) -> Result<TargetInstance> {
+    let target = crate::targets::GitLabTarget::new(config)
+        .await
+        .context("Failed to create GitLab target")?;
+    Ok(Box::new(target))
+}
+
+#[cfg(not(feature = "gitlab"))]
+async fn create_gitlab_target(
+    _config: &crate::config::GitLabTargetConfig,
+) -> Result<TargetInstance> {
+    anyhow::bail!(
+        "GitLab target support requires building with `--features gitlab`.\n\
+         Rebuild with: cargo install --git ... --features gitlab"
+    )
+}
+
+#[cfg(feature = "github")]
+async fn create_github_target(
+    config: &crate::config::GitHubTargetConfig,
+) -> Result<TargetInstance> {
+    let target = crate::targets::GitHubTarget::new(config)
+        .await
+        .context("Failed to create GitHub target")?;
+    Ok(Box::new(target))
+}
+
+#[cfg(not(feature = "github"))]
+async fn create_github_target(
+    _config: &crate::config::GitHubTargetConfig,
+) -> Result<TargetInstance> {
+    anyhow::bail!(
+        "GitHub target support requires building with `--features github`.\n\
+         Rebuild with: cargo install --git ... --features github"
     )
 }
 

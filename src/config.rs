@@ -113,7 +113,7 @@ pub struct OcpConfig {
 #[serde(untagged)]
 #[allow(clippy::large_enum_variant)]
 pub enum TargetsSpec {
-    /// New: `[[targets]]` with `type = "postgres"` / `"api"` / `"mysql"`
+    /// New: `[[targets]]` with `type = "postgres"` / `"api"` / `"mysql"` / `"gitlab"` / `"github"`
     List(Vec<TargetEntry>),
     /// Old: `[targets.postgres]` / `[targets.api]` (backward compat)
     Named(TargetsConfig),
@@ -127,6 +127,10 @@ pub struct TargetsConfig {
     pub api: Option<ApiTargetConfig>,
     #[serde(default)]
     pub mysql: Option<MysqlTargetConfig>,
+    #[serde(default)]
+    pub gitlab: Option<GitLabTargetConfig>,
+    #[serde(default)]
+    pub github: Option<GitHubTargetConfig>,
 }
 
 /// One entry in the `[[targets]]` array form.
@@ -136,6 +140,8 @@ pub enum TargetEntry {
     Postgres(PostgresTargetConfig),
     Api(ApiTargetConfig),
     Mysql(MysqlTargetConfig),
+    Gitlab(GitLabTargetConfig),
+    Github(GitHubTargetConfig),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -206,6 +212,46 @@ pub struct ApiTargetConfig {
     /// Request timeout in seconds (default: 30)
     #[serde(default = "default_api_timeout")]
     pub timeout_seconds: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitLabTargetConfig {
+    /// GitLab project ID (numeric) or path ("group/project" — slashes are auto-encoded)
+    pub project_id: String,
+    /// CI/CD variable key to create or update
+    pub variable_key: String,
+    /// GitLab instance base URL (defaults to https://gitlab.com)
+    #[serde(default)]
+    pub gitlab_url: Option<String>,
+    /// Personal/project/group access token (falls back to GITLAB_TOKEN env var)
+    #[serde(default)]
+    pub token: Option<String>,
+    /// Mark the variable as masked in job logs
+    #[serde(default)]
+    pub masked: Option<bool>,
+    /// Restrict the variable to protected branches/tags only
+    #[serde(default)]
+    pub protected: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitHubTargetConfig {
+    /// Repository owner (organization or user)
+    pub owner: String,
+    /// Repository name
+    pub repo: String,
+    /// Name of the Actions secret to update (mutually exclusive with variable_name)
+    #[serde(default)]
+    pub secret_name: Option<String>,
+    /// Name of the Actions variable to update (mutually exclusive with secret_name)
+    #[serde(default)]
+    pub variable_name: Option<String>,
+    /// Personal access token (falls back to GITHUB_TOKEN env var)
+    #[serde(default)]
+    pub token: Option<String>,
+    /// GitHub Environment name to scope the secret/variable (optional)
+    #[serde(default)]
+    pub env_name: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -502,6 +548,26 @@ secret_length = 32
 # database = "app"
 # username = "admin"
 # password_path = "myapp/db-admin-password"
+
+# GitLab CI/CD variable target (requires --features gitlab)
+# [[targets]]
+# type = "gitlab"
+# project_id = "mygroup/myproject"   # or numeric ID
+# variable_key = "DB_PASSWORD"
+# # gitlab_url = "https://gitlab.example.com"   # defaults to https://gitlab.com
+# # token = "glpat-..."                          # or set GITLAB_TOKEN env var
+# # masked = true
+# # protected = false
+
+# GitHub Actions secret target (requires --features github)
+# [[targets]]
+# type = "github"
+# owner = "myorg"
+# repo  = "myrepo"
+# secret_name = "DB_PASSWORD"          # mutually exclusive with variable_name
+# # variable_name = "DB_HOST"          # use this for plaintext variables instead
+# # token = "ghp_..."                  # or set GITHUB_TOKEN env var
+# # env_name = "production"            # scope to a GitHub Environment
 
 # [audit]
 # log_file = "/var/log/asr/audit.jsonl"

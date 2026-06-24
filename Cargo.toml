@@ -23,6 +23,10 @@ ocp = ["dep:kube", "dep:k8s-openapi"]
 mysql = ["dep:mysql_async"]
 # Enable macOS Keychain support
 keychain = ["dep:keyring"]
+# Enable GitLab CI/CD variable target
+gitlab = []
+# Enable GitHub Actions secret/variable target (requires NaCl sealed-box encryption)
+github = ["dep:crypto_box", "dep:blake2"]
 # Enable integration tests (requires running Vault + PostgreSQL via docker-compose)
 integration = []
 
@@ -56,6 +60,11 @@ mysql_async = { version = "0.34", optional = true, features = ["native-tls"] }
 
 # Optional: system keychain (macOS Keychain, Windows Credential Store, Linux Secret Service)
 keyring = { version = "3", optional = true }
+
+# Optional: NaCl sealed-box encryption for GitHub Actions secrets
+crypto_box = { version = "0.9", features = ["seal"], optional = true }
+# Optional: Blake2b nonce derivation for GitHub sealed-box (libsodium-compatible)
+blake2 = { version = "0.10", optional = true }
 
 [dev-dependencies]
 mockito = "1"
