@@ -38,12 +38,17 @@ async fn test_token_auth_from_config_field() {
 
 #[tokio::test]
 async fn test_token_auth_missing_fails() {
-    // Ensure VAULT_TOKEN is not set for this test. If it is, the test is a no-op.
-    if std::env::var("VAULT_TOKEN").is_ok() {
-        return;
-    }
+    // Temporarily clear VAULT_TOKEN so the test is deterministic regardless of environment.
+    let saved = std::env::var("VAULT_TOKEN").ok();
+    std::env::remove_var("VAULT_TOKEN");
+
     let config = vault_token_config("http://127.0.0.1:1", None);
     let result = VaultBackend::from_config(&config).await;
+
+    if let Some(v) = saved {
+        std::env::set_var("VAULT_TOKEN", v);
+    }
+
     assert!(result.is_err());
     let msg = result.err().unwrap().to_string();
     assert!(

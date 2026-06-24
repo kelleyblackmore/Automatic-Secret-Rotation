@@ -78,9 +78,10 @@ async fn test_github_secret_name_and_variable_name_are_mutually_exclusive() {
 
 #[tokio::test]
 async fn test_github_requires_token() {
-    if std::env::var("GITHUB_TOKEN").is_ok() {
-        return;
-    }
+    // Temporarily clear GITHUB_TOKEN so the test is deterministic regardless of environment.
+    let saved = std::env::var("GITHUB_TOKEN").ok();
+    std::env::remove_var("GITHUB_TOKEN");
+
     let config = GitHubTargetConfig {
         owner: "myorg".to_string(),
         repo: "myrepo".to_string(),
@@ -92,6 +93,11 @@ async fn test_github_requires_token() {
         api_url: None,
     };
     let result = GitHubTarget::new(&config).await;
+
+    if let Some(v) = saved {
+        std::env::set_var("GITHUB_TOKEN", v);
+    }
+
     assert!(result.is_err());
     let msg = result.err().unwrap().to_string();
     assert!(

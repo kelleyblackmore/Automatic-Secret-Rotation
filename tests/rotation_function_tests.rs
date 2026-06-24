@@ -432,3 +432,29 @@ async fn test_scan_empty_path_returns_empty_for_empty_backend() -> Result<()> {
     assert!(due.is_empty());
     Ok(())
 }
+
+#[tokio::test]
+async fn test_scan_non_empty_prefix_no_double_prefix() -> Result<()> {
+    // Regression test for FileBackend::list_secrets stripping base_dir instead of dir_path.
+    // Before the fix, scan_for_rotation("app", ...) would return "app/app/overdue" because
+    // list_secrets returned paths relative to base_dir rather than the queried prefix.
+    let temp = TempDir::new()?;
+    let backend = FileBackend::new(temp.path())?;
+
+    write_secret(&backend, "app/overdue", "password", "pass").await;
+    flag_secret_as_overdue(&backend, "app/overdue").await;
+
+    let due = scan_for_rotation(&backend, "app", 6).await?;
+
+    assert_eq!(
+        due.len(),
+        1,
+        "should find exactly one overdue secret: {due:?}"
+    );
+    assert_eq!(
+        due[0], "app/overdue",
+        "path should not be double-prefixed: got {:?}",
+        due[0]
+    );
+    Ok(())
+}
