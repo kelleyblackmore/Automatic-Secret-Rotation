@@ -162,13 +162,15 @@ async fn test_github_update_variable_patches_existing() -> Result<()> {
         .await;
 
     let patch_mock = server
-        .mock("PATCH", "/repos/myorg/myrepo/actions/variables/EXISTING_VAR")
+        .mock(
+            "PATCH",
+            "/repos/myorg/myrepo/actions/variables/EXISTING_VAR",
+        )
         .with_status(204)
         .create_async()
         .await;
 
-    let target =
-        GitHubTarget::new(&variable_config(&server.url(), "EXISTING_VAR")).await?;
+    let target = GitHubTarget::new(&variable_config(&server.url(), "EXISTING_VAR")).await?;
     target.update_password("", "new-value").await?;
 
     get_mock.assert_async().await;
@@ -229,9 +231,9 @@ async fn test_github_update_secret_fetches_pubkey_and_uploads() -> Result<()> {
     // Use a real X25519 public key so the sealed-box encryption succeeds.
     // Curve25519 base point in little-endian (the "9" point).
     let pk_bytes: [u8; 32] = [
-        0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00,
+        0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00,
     ];
     let pk_b64 = base64::encode(&pk_bytes);
 
@@ -239,9 +241,7 @@ async fn test_github_update_secret_fetches_pubkey_and_uploads() -> Result<()> {
         .mock("GET", "/repos/myorg/myrepo/actions/secrets/public-key")
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(format!(
-            r#"{{"key_id":"key_abc123","key":"{pk_b64}"}}"#
-        ))
+        .with_body(format!(r#"{{"key_id":"key_abc123","key":"{pk_b64}"}}"#))
         .create_async()
         .await;
 

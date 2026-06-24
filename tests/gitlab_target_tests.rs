@@ -131,7 +131,10 @@ async fn test_gitlab_project_path_slash_is_encoded() -> Result<()> {
 
     // "mygroup/myproject" should appear as "mygroup%2Fmyproject" in the URL
     let put_mock = server
-        .mock("PUT", "/api/v4/projects/mygroup%2Fmyproject/variables/MY_VAR")
+        .mock(
+            "PUT",
+            "/api/v4/projects/mygroup%2Fmyproject/variables/MY_VAR",
+        )
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"key":"MY_VAR","value":"v"}"#)

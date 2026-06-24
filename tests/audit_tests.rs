@@ -43,8 +43,7 @@ fn test_audit_event_defaults() {
 
 #[test]
 fn test_audit_event_with_error_sets_failed_status() {
-    let ev = AuditEvent::new("rotate", "app/db", "vault")
-        .with_error("connection refused");
+    let ev = AuditEvent::new("rotate", "app/db", "vault").with_error("connection refused");
     assert_eq!(ev.status, "failed");
     assert_eq!(ev.error.as_deref(), Some("connection refused"));
 }
@@ -189,19 +188,15 @@ fn test_audit_logger_multiple_events_append_not_overwrite() {
 #[test]
 fn test_audit_logger_creates_parent_directories() {
     let dir = TempDir::new().unwrap();
-    let log_path = dir
-        .path()
-        .join("deeply")
-        .join("nested")
-        .join("audit.jsonl");
+    let log_path = dir.path().join("deeply").join("nested").join("audit.jsonl");
     let logger = AuditLogger::new(&file_config(log_path.to_str().unwrap()));
 
     logger.log(&AuditEvent::new("rotate", "app/db", "file"));
 
     assert!(log_path.exists(), "log file should have been created");
     let contents = std::fs::read_to_string(&log_path).unwrap();
-    let _: serde_json::Value = serde_json::from_str(contents.trim())
-        .expect("written line must be valid JSON");
+    let _: serde_json::Value =
+        serde_json::from_str(contents.trim()).expect("written line must be valid JSON");
 }
 
 #[test]
@@ -221,5 +216,8 @@ fn test_audit_logger_no_op_when_disabled() {
 #[test]
 fn test_audit_event_asr_version_is_present() {
     let ev = AuditEvent::new("rotate", "app/db", "vault");
-    assert!(!ev.asr_version.is_empty(), "asr_version should be populated");
+    assert!(
+        !ev.asr_version.is_empty(),
+        "asr_version should be populated"
+    );
 }

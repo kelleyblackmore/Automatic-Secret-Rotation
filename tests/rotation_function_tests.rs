@@ -139,7 +139,10 @@ async fn test_rotate_secret_each_call_generates_different_value() -> Result<()> 
 
     let first = rotate_secret(&backend, "app/db", 32).await?;
     let second = rotate_secret(&backend, "app/db", 32).await?;
-    assert_ne!(first, second, "consecutive rotations should produce distinct secrets");
+    assert_ne!(
+        first, second,
+        "consecutive rotations should produce distinct secrets"
+    );
     Ok(())
 }
 
@@ -196,14 +199,8 @@ async fn test_rotate_with_target_calls_update_and_verify() -> Result<()> {
 
     let target = MockTarget::new();
 
-    let new = rotate_secret_with_target(
-        &backend,
-        "app/db",
-        32,
-        Some(&target),
-        Some("admin"),
-    )
-    .await?;
+    let new =
+        rotate_secret_with_target(&backend, "app/db", 32, Some(&target), Some("admin")).await?;
 
     assert_eq!(target.update_call_count(), 1);
     assert_eq!(target.last_updated_password(), Some(new.clone()));
@@ -238,8 +235,7 @@ async fn test_rotate_with_target_that_requires_username_fails_when_none_given() 
     let mut target = MockTarget::new();
     target.needs_username = true;
 
-    let result =
-        rotate_secret_with_target(&backend, "app/db", 32, Some(&target), None).await;
+    let result = rotate_secret_with_target(&backend, "app/db", 32, Some(&target), None).await;
     assert!(result.is_err());
     let msg = result.unwrap_err().to_string();
     assert!(
@@ -257,12 +253,14 @@ async fn test_rotate_with_target_username_not_required_works_without_one() -> Re
 
     let target = MockTarget::new();
 
-    let new =
-        rotate_secret_with_target(&backend, "app/var", 32, Some(&target), None).await?;
+    let new = rotate_secret_with_target(&backend, "app/var", 32, Some(&target), None).await?;
 
     let calls = target.update_calls.lock().unwrap();
     assert_eq!(calls.len(), 1);
-    assert_eq!(calls[0].0, "", "username should be empty string for username-free targets");
+    assert_eq!(
+        calls[0].0, "",
+        "username should be empty string for username-free targets"
+    );
     assert_eq!(calls[0].1, new);
     Ok(())
 }

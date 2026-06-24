@@ -31,10 +31,7 @@ fn test_should_notify_false_when_no_webhook() {
 
 #[test]
 fn test_should_notify_false_for_event_not_in_list() {
-    let client = NotificationClient::new(&cfg(
-        Some("http://example.com/hook"),
-        &["rotate"],
-    ));
+    let client = NotificationClient::new(&cfg(Some("http://example.com/hook"), &["rotate"]));
     assert!(!client.should_notify("flag"));
     assert!(!client.should_notify("scan"));
     assert!(!client.should_notify("unknown_event"));
@@ -67,18 +64,19 @@ fn test_is_enabled_reflects_webhook_presence() {
 async fn test_notify_rotate_no_op_when_no_webhook() {
     let client = NotificationClient::new(&cfg(None, &["rotate"]));
     // Should return Ok without making any network call
-    let result = client.notify_rotate("app/db", "vault", "success", None).await;
+    let result = client
+        .notify_rotate("app/db", "vault", "success", None)
+        .await;
     assert!(result.is_ok());
 }
 
 #[tokio::test]
 async fn test_notify_rotate_no_op_when_event_not_in_list() {
     // webhook is set but "rotate" not in events list
-    let client = NotificationClient::new(&cfg(
-        Some("http://127.0.0.1:1/unreachable"),
-        &["flag"],
-    ));
-    let result = client.notify_rotate("app/db", "vault", "success", None).await;
+    let client = NotificationClient::new(&cfg(Some("http://127.0.0.1:1/unreachable"), &["flag"]));
+    let result = client
+        .notify_rotate("app/db", "vault", "success", None)
+        .await;
     assert!(result.is_ok(), "should skip without error: {:?}", result);
 }
 
@@ -117,7 +115,9 @@ async fn test_notify_rotate_swallows_non_2xx_response() {
     let url = format!("{}/hook", server.url());
     let client = NotificationClient::new(&cfg(Some(&url), &["rotate"]));
     // 503 must not bubble up as an error
-    let result = client.notify_rotate("app/db", "vault", "success", None).await;
+    let result = client
+        .notify_rotate("app/db", "vault", "success", None)
+        .await;
     assert!(result.is_ok(), "non-2xx should be swallowed: {:?}", result);
 }
 
