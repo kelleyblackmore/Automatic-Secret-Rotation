@@ -223,9 +223,14 @@ pub struct GitLabTargetConfig {
     /// GitLab instance base URL (defaults to https://gitlab.com)
     #[serde(default)]
     pub gitlab_url: Option<String>,
-    /// Personal/project/group access token (falls back to GITLAB_TOKEN env var)
+    /// Personal/project/group access token (falls back to GITLAB_TOKEN env var).
+    /// Use `token_path` to source the token from the secret backend instead.
     #[serde(default)]
     pub token: Option<String>,
+    /// Path in the secret backend where the GitLab token is stored.
+    /// Takes precedence over `token` and `GITLAB_TOKEN`.
+    #[serde(default)]
+    pub token_path: Option<String>,
     /// Mark the variable as masked in job logs
     #[serde(default)]
     pub masked: Option<bool>,
@@ -246,9 +251,14 @@ pub struct GitHubTargetConfig {
     /// Name of the Actions variable to update (mutually exclusive with secret_name)
     #[serde(default)]
     pub variable_name: Option<String>,
-    /// Personal access token (falls back to GITHUB_TOKEN env var)
+    /// Personal access token (falls back to GITHUB_TOKEN env var).
+    /// Use `token_path` to source the token from the secret backend instead.
     #[serde(default)]
     pub token: Option<String>,
+    /// Path in the secret backend where the GitHub token is stored.
+    /// Takes precedence over `token` and `GITHUB_TOKEN`.
+    #[serde(default)]
+    pub token_path: Option<String>,
     /// GitHub Environment name to scope the secret/variable (optional)
     #[serde(default)]
     pub env_name: Option<String>,

@@ -97,26 +97,22 @@ pub async fn rotate_secret_with_targets(
 
     // Apply the same new secret to remaining targets
     for &extra_target in rest {
-        if let Some(username) = target_username {
-            extra_target
-                .update_password(username, &new_secret)
-                .await
-                .with_context(|| {
-                    format!(
-                        "Failed to update password on {} target",
-                        extra_target.target_type()
-                    )
-                })?;
-            extra_target
-                .verify_connection(username, &new_secret, None)
-                .await
-                .with_context(|| {
-                    format!(
-                        "Failed to verify connection on {} target",
-                        extra_target.target_type()
-                    )
-                })?;
+        if extra_target.requires_username() && target_username.is_none() {
+            anyhow::bail!(
+                "{} target requires a username — pass --target-username or set \
+                 target_username in the secret metadata",
+                extra_target.target_type()
+            );
         }
+        let username = target_username.unwrap_or("");
+        extra_target
+            .update_password(username, &new_secret)
+            .await
+            .with_context(|| format!("Failed to update {} target", extra_target.target_type()))?;
+        extra_target
+            .verify_connection(username, &new_secret, None)
+            .await
+            .with_context(|| format!("Failed to verify {} target", extra_target.target_type()))?;
     }
 
     Ok(new_secret)
@@ -164,27 +160,36 @@ pub async fn rotate_secret_with_target(
         .await
         .context("Failed to write rotated secret")?;
 
-    // Update target password if configured
+    // Update target if configured.
+    // Username-free targets (GitLab, GitHub) are called with an empty username;
+    // targets that require a username (Postgres, MySQL) bail if none is provided.
     if let Some(target) = target {
-        if let Some(username) = target_username {
-            info!(
-                "Updating {} password for user: {}",
-                target.target_type(),
-                username
+        if target.requires_username() && target_username.is_none() {
+            anyhow::bail!(
+                "{} target requires a username — pass --target-username or set \
+                 target_username in the secret metadata",
+                target.target_type()
             );
-            target
-                .update_password(username, &new_secret)
-                .await
-                .with_context(|| format!("Failed to update {} password", target.target_type()))?;
-
-            // Optionally verify the new password works
-            target
-                .verify_connection(username, &new_secret, None)
-                .await
-                .with_context(|| {
-                    format!("Failed to verify new {} password", target.target_type())
-                })?;
         }
+        let username = target_username.unwrap_or("");
+        info!(
+            "Updating {} target{}",
+            target.target_type(),
+            if username.is_empty() {
+                String::new()
+            } else {
+                format!(" for user: {}", username)
+            }
+        );
+        target
+            .update_password(username, &new_secret)
+            .await
+            .with_context(|| format!("Failed to update {} target", target.target_type()))?;
+
+        target
+            .verify_connection(username, &new_secret, None)
+            .await
+            .with_context(|| format!("Failed to verify new {} value", target.target_type()))?;
     }
 
     // Update metadata with rotation timestamp

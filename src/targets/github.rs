@@ -222,6 +222,10 @@ impl Target for GitHubTarget {
     fn target_type(&self) -> &'static str {
         "GitHub"
     }
+
+    fn requires_username(&self) -> bool {
+        false
+    }
 }
 
 /// Implements libsodium's `crypto_box_seal` (anonymous sender sealed box).

@@ -228,8 +228,12 @@ pub async fn execute(cli: Cli) -> Result<()> {
             update_target,
             target_username,
         } => {
-            if update_target && target_username.is_none() {
-                anyhow::bail!("--target-username is required when --update-target is set");
+            let username_required = targets.iter().any(|t| t.requires_username());
+            if update_target && username_required && target_username.is_none() {
+                anyhow::bail!(
+                    "--target-username is required when --update-target is set for \
+                     database / API targets"
+                );
             }
             if update_target && targets.is_empty() {
                 anyhow::bail!(
@@ -361,7 +365,14 @@ pub async fn execute(cli: Cli) -> Result<()> {
 
                 let start = std::time::Instant::now();
 
-                let result = if update_target && target_username.is_some() {
+                // Call targets if update_target is set.
+                // Username-free targets (GitLab, GitHub) work with target_username = None.
+                // Username-required targets (Postgres, MySQL) need target_username from metadata.
+                let has_username_free_targets = targets.iter().any(|t| !t.requires_username());
+                let result = if update_target
+                    && (!targets.is_empty())
+                    && (target_username.is_some() || has_username_free_targets)
+                {
                     rotation::rotate_secret_with_targets(
                         backend.as_ref(),
                         secret_path,
@@ -648,10 +659,10 @@ async fn create_targets(
                 result.push(create_mysql_target(mysql, backend).await?);
             }
             if let Some(ref gitlab) = named.gitlab {
-                result.push(create_gitlab_target(gitlab).await?);
+                result.push(create_gitlab_target(gitlab, backend).await?);
             }
             if let Some(ref github) = named.github {
-                result.push(create_github_target(github).await?);
+                result.push(create_github_target(github, backend).await?);
             }
         }
         None => {
@@ -673,8 +684,8 @@ async fn create_target_from_entry(
         TargetEntry::Postgres(pg) => create_postgres_target(pg, backend).await,
         TargetEntry::Api(api) => create_api_target(api).await,
         TargetEntry::Mysql(mysql) => create_mysql_target(mysql, backend).await,
-        TargetEntry::Gitlab(gitlab) => create_gitlab_target(gitlab).await,
-        TargetEntry::Github(github) => create_github_target(github).await,
+        TargetEntry::Gitlab(gitlab) => create_gitlab_target(gitlab, backend).await,
+        TargetEntry::Github(github) => create_github_target(github, backend).await,
     }
 }
 
@@ -736,8 +747,27 @@ async fn create_mysql_target(
 #[cfg(feature = "gitlab")]
 async fn create_gitlab_target(
     config: &crate::config::GitLabTargetConfig,
+    backend: &dyn crate::backends::SecretBackend,
 ) -> Result<TargetInstance> {
-    let target = crate::targets::GitLabTarget::new(config)
+    // Resolve the token from the backend if token_path is set
+    let resolved = if let Some(ref path) = config.token_path {
+        let secret = backend
+            .read_secret(path)
+            .await
+            .context("Failed to read GitLab token from backend")?;
+        let tok = secret
+            .data
+            .values()
+            .next()
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("No token found in secret at {}", path))?;
+        let mut c = config.clone();
+        c.token = Some(tok);
+        std::borrow::Cow::Owned(c)
+    } else {
+        std::borrow::Cow::Borrowed(config)
+    };
+    let target = crate::targets::GitLabTarget::new(&resolved)
         .await
         .context("Failed to create GitLab target")?;
     Ok(Box::new(target))
@@ -746,6 +776,7 @@ async fn create_gitlab_target(
 #[cfg(not(feature = "gitlab"))]
 async fn create_gitlab_target(
     _config: &crate::config::GitLabTargetConfig,
+    _backend: &dyn crate::backends::SecretBackend,
 ) -> Result<TargetInstance> {
     anyhow::bail!(
         "GitLab target support requires building with `--features gitlab`.\n\
@@ -756,8 +787,27 @@ async fn create_gitlab_target(
 #[cfg(feature = "github")]
 async fn create_github_target(
     config: &crate::config::GitHubTargetConfig,
+    backend: &dyn crate::backends::SecretBackend,
 ) -> Result<TargetInstance> {
-    let target = crate::targets::GitHubTarget::new(config)
+    // Resolve the token from the backend if token_path is set
+    let resolved = if let Some(ref path) = config.token_path {
+        let secret = backend
+            .read_secret(path)
+            .await
+            .context("Failed to read GitHub token from backend")?;
+        let tok = secret
+            .data
+            .values()
+            .next()
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("No token found in secret at {}", path))?;
+        let mut c = config.clone();
+        c.token = Some(tok);
+        std::borrow::Cow::Owned(c)
+    } else {
+        std::borrow::Cow::Borrowed(config)
+    };
+    let target = crate::targets::GitHubTarget::new(&resolved)
         .await
         .context("Failed to create GitHub target")?;
     Ok(Box::new(target))
@@ -766,6 +816,7 @@ async fn create_github_target(
 #[cfg(not(feature = "github"))]
 async fn create_github_target(
     _config: &crate::config::GitHubTargetConfig,
+    _backend: &dyn crate::backends::SecretBackend,
 ) -> Result<TargetInstance> {
     anyhow::bail!(
         "GitHub target support requires building with `--features github`.\n\

@@ -120,4 +120,8 @@ impl Target for GitLabTarget {
     fn target_type(&self) -> &'static str {
         "GitLab"
     }
+
+    fn requires_username(&self) -> bool {
+        false
+    }
 }
