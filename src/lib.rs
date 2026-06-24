@@ -2,9 +2,11 @@
 //!
 //! A library for automatic secret rotation with support for multiple backends.
 
+pub mod audit;
 pub mod backends;
 pub mod config;
 pub mod env_updater;
+pub mod notification;
 pub mod rotation;
 pub mod targets;
 

@@ -1,4 +1,4 @@
-use secret_rotator::config::{Config, RotationConfig};
+use secret_rotator::config::{Config, RotationConfig, TargetsSpec};
 use std::fs;
 use tempfile::TempDir;
 
@@ -71,6 +71,14 @@ directory = "/tmp/test-secrets"
     assert_eq!(config.file.as_ref().unwrap().directory, "/tmp/test-secrets");
 }
 
+/// Helper to extract TargetsConfig from the Named variant of TargetsSpec.
+fn named_targets(config: &Config) -> &secret_rotator::config::TargetsConfig {
+    match config.targets.as_ref().unwrap() {
+        TargetsSpec::Named(named) => named,
+        TargetsSpec::List(_) => panic!("Expected Named targets, got List"),
+    }
+}
+
 #[test]
 fn test_config_from_file_with_targets() {
     let temp_dir = TempDir::new().unwrap();
@@ -94,7 +102,7 @@ ssl_mode = "require"
 
     let config = Config::from_file(&config_path).unwrap();
     assert!(config.targets.is_some());
-    let postgres = config.targets.as_ref().unwrap().postgres.as_ref().unwrap();
+    let postgres = named_targets(&config).postgres.as_ref().unwrap();
     assert_eq!(postgres.host, "localhost");
     assert_eq!(postgres.port, 5432);
     assert_eq!(postgres.database, "testdb");
@@ -126,7 +134,7 @@ auth_header = "Bearer token123"
     fs::write(&config_path, config_content).unwrap();
 
     let config = Config::from_file(&config_path).unwrap();
-    let api = config.targets.as_ref().unwrap().api.as_ref().unwrap();
+    let api = named_targets(&config).api.as_ref().unwrap();
     assert_eq!(api.base_url, "https://api.example.com");
     assert_eq!(api.endpoint, "/users/{username}/password");
     assert_eq!(api.method, "PUT");
@@ -134,6 +142,43 @@ auth_header = "Bearer token123"
     assert_eq!(api.username_field.as_ref().unwrap(), "user");
     assert_eq!(api.timeout_seconds, 60);
     assert_eq!(api.auth_header.as_ref().unwrap(), "Bearer token123");
+}
+
+#[test]
+fn test_config_from_file_multi_target_list() {
+    let temp_dir = TempDir::new().unwrap();
+    let config_path = temp_dir.path().join("config.toml");
+
+    let config_content = r#"
+backend = "vault"
+[vault]
+address = "http://localhost:8200"
+token = "test-token"
+
+[[targets]]
+type = "postgres"
+host = "primary.db"
+database = "app"
+username = "admin"
+password_path = "myapp/admin"
+
+[[targets]]
+type = "postgres"
+host = "replica.db"
+database = "app"
+username = "admin"
+password_path = "myapp/admin"
+"#;
+    fs::write(&config_path, config_content).unwrap();
+
+    let config = Config::from_file(&config_path).unwrap();
+    assert!(config.targets.is_some());
+    match config.targets.as_ref().unwrap() {
+        TargetsSpec::List(entries) => {
+            assert_eq!(entries.len(), 2, "Expected 2 targets");
+        }
+        TargetsSpec::Named(_) => panic!("Expected List targets, got Named"),
+    }
 }
 
 #[test]
@@ -150,7 +195,6 @@ token = "test-token"
     fs::write(&config_path, config_content).unwrap();
 
     let config = Config::from_file(&config_path).unwrap();
-    // Test defaults
     assert_eq!(config.vault.as_ref().unwrap().mount, "secret");
     assert_eq!(config.rotation.period_months, 6);
     assert_eq!(config.rotation.secret_length, 32);
@@ -165,10 +209,9 @@ fn test_config_create_sample() {
 
     assert!(config_path.exists());
     let config = Config::from_file(&config_path).unwrap();
+    // Sample uses vault backend with required fields
     assert_eq!(config.backend, "vault");
     assert!(config.vault.is_some());
-    assert!(config.aws.is_some());
-    assert!(config.file.is_some());
 }
 
 #[test]
@@ -185,9 +228,9 @@ username = "admin"
     fs::write(&config_path, config_content).unwrap();
 
     let config = Config::from_file(&config_path).unwrap();
-    let postgres = config.targets.as_ref().unwrap().postgres.as_ref().unwrap();
-    assert_eq!(postgres.port, 5432); // default port
-    assert_eq!(postgres.ssl_mode, "prefer"); // default ssl_mode
+    let postgres = named_targets(&config).postgres.as_ref().unwrap();
+    assert_eq!(postgres.port, 5432);
+    assert_eq!(postgres.ssl_mode, "prefer");
 }
 
 #[test]
@@ -203,8 +246,8 @@ endpoint = "/password"
     fs::write(&config_path, config_content).unwrap();
 
     let config = Config::from_file(&config_path).unwrap();
-    let api = config.targets.as_ref().unwrap().api.as_ref().unwrap();
-    assert_eq!(api.method, "POST"); // default method
-    assert_eq!(api.password_field, "password"); // default password_field
-    assert_eq!(api.timeout_seconds, 30); // default timeout
+    let api = named_targets(&config).api.as_ref().unwrap();
+    assert_eq!(api.method, "POST");
+    assert_eq!(api.password_field, "password");
+    assert_eq!(api.timeout_seconds, 30);
 }

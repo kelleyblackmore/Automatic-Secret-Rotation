@@ -1,0 +1,89 @@
+# OCP / Kubernetes RBAC manifests for ASR (Automatic Secret Rotation)
+#
+# Apply with:
+#   kubectl apply -f examples/ocp-rbac.yaml -n <your-namespace>
+#   oc apply -f examples/ocp-rbac.yaml -n <your-namespace>
+#
+# Replace "asr" and "my-app" with your actual ServiceAccount and namespace.
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: asr
+  namespace: my-app
+  labels:
+    app.kubernetes.io/name: asr
+    app.kubernetes.io/component: secret-rotator
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: asr-secret-manager
+  namespace: my-app
+  labels:
+    app.kubernetes.io/name: asr
+    app.kubernetes.io/component: secret-rotator
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "create", "update", "patch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: asr-secret-manager
+  namespace: my-app
+  labels:
+    app.kubernetes.io/name: asr
+    app.kubernetes.io/component: secret-rotator
+subjects:
+  - kind: ServiceAccount
+    name: asr
+    namespace: my-app
+roleRef:
+  kind: Role
+  apiGroup: rbac.authorization.k8s.io
+  name: asr-secret-manager
+
+---
+# Example CronJob that runs ASR on a weekly schedule
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: asr-rotate
+  namespace: my-app
+  labels:
+    app.kubernetes.io/name: asr
+    app.kubernetes.io/component: secret-rotator
+spec:
+  schedule: "0 0 * * 0"  # Every Sunday at midnight
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: asr
+          restartPolicy: OnFailure
+          containers:
+            - name: asr
+              image: ghcr.io/kelleyblackmore/asr:latest
+              args:
+                - auto
+                - --update-target
+              env:
+                - name: SECRET_BACKEND
+                  value: ocp
+                - name: OCP_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 200m
+                  memory: 128Mi

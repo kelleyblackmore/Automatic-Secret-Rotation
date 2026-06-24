@@ -18,16 +18,38 @@ pub struct Config {
     pub file: Option<FileConfig>,
 
     #[serde(default)]
+    pub azure: Option<AzureConfig>,
+
+    #[serde(default)]
+    pub gcp: Option<GcpConfig>,
+
+    #[serde(default)]
+    pub ocp: Option<OcpConfig>,
+
+    #[serde(default)]
     pub rotation: RotationConfig,
 
     /// Legacy database config (deprecated, use targets.postgres instead)
     #[serde(default)]
     pub database: Option<PostgresTargetConfig>,
 
-    /// Target configurations for password updates
+    /// Target configuration: either `[targets.postgres]`/`[targets.api]` (old)
+    /// or `[[targets]]` array with `type` field (new multi-target form).
     #[serde(default)]
-    pub targets: Option<TargetsConfig>,
+    pub targets: Option<TargetsSpec>,
+
+    /// Optional audit log configuration
+    #[serde(default)]
+    pub audit: AuditConfig,
+
+    /// Optional webhook/Slack notification configuration
+    #[serde(default)]
+    pub notification: NotificationConfig,
 }
+
+// ---------------------------------------------------------------------------
+// Backend configs
+// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VaultConfig {
@@ -45,28 +67,74 @@ pub struct AwsConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileConfig {
-    /// Base directory for storing secret files
-    /// Default: ~/.asr/secrets
+    /// Base directory for storing secret files. Default: ~/.asr/secrets
     #[serde(default = "default_file_dir")]
     pub directory: String,
 }
 
-fn default_file_dir() -> String {
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .unwrap_or_else(|_| ".".to_string());
-    format!("{}/.asr/secrets", home)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AzureConfig {
+    /// Azure Key Vault URL, e.g. "https://my-vault.vault.azure.net"
+    pub vault_url: String,
+    /// Optional tenant ID (defaults to DefaultAzureCredential discovery)
+    #[serde(default)]
+    pub tenant_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GcpConfig {
+    /// GCP project ID
+    pub project_id: String,
+    /// Optional path to service account key JSON (defaults to ADC)
+    #[serde(default)]
+    pub credentials_file: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OcpConfig {
+    /// Kubernetes namespace to read/write secrets in
+    pub namespace: String,
+    /// Optional path to kubeconfig (defaults to in-cluster auth, then ~/.kube/config)
+    #[serde(default)]
+    pub kubeconfig: Option<String>,
+    /// Optional kubeconfig context name
+    #[serde(default)]
+    pub context: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// Target configs
+// ---------------------------------------------------------------------------
+
+/// Supports both the old named form (`[targets.postgres]`) and the new array
+/// form (`[[targets]]` with a `type` field).  serde's untagged enum tries
+/// each variant in order: Vec first (array), then TargetsConfig (named table).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum TargetsSpec {
+    /// New: `[[targets]]` with `type = "postgres"` / `"api"` / `"mysql"`
+    List(Vec<TargetEntry>),
+    /// Old: `[targets.postgres]` / `[targets.api]` (backward compat)
+    Named(TargetsConfig),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TargetsConfig {
-    /// PostgreSQL target configuration
     #[serde(default)]
     pub postgres: Option<PostgresTargetConfig>,
-
-    /// API target configuration
     #[serde(default)]
     pub api: Option<ApiTargetConfig>,
+    #[serde(default)]
+    pub mysql: Option<MysqlTargetConfig>,
+}
+
+/// One entry in the `[[targets]]` array form.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum TargetEntry {
+    Postgres(PostgresTargetConfig),
+    Api(ApiTargetConfig),
+    Mysql(MysqlTargetConfig),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -88,12 +156,26 @@ pub struct PostgresTargetConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MysqlTargetConfig {
+    pub host: String,
+    #[serde(default = "default_mysql_port")]
+    pub port: u16,
+    pub database: String,
+    pub username: String,
+    #[serde(default)]
+    pub password_path: Option<String>,
+    #[serde(default)]
+    pub password: Option<String>,
+    #[serde(default)]
+    pub ssl_mode: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiTargetConfig {
     /// Base URL for the API (e.g., "https://api.example.com")
     pub base_url: String,
 
     /// Endpoint path for password updates (e.g., "/api/v1/users/{username}/password")
-    /// Use {username} as a placeholder that will be replaced
     pub endpoint: String,
 
     /// HTTP method (default: POST)
@@ -104,7 +186,7 @@ pub struct ApiTargetConfig {
     #[serde(default = "default_password_field")]
     pub password_field: String,
 
-    /// Field name in request body for username (optional, username will be added if set)
+    /// Field name in request body for username (optional)
     #[serde(default)]
     pub username_field: Option<String>,
 
@@ -125,6 +207,77 @@ pub struct ApiTargetConfig {
     pub timeout_seconds: u64,
 }
 
+// ---------------------------------------------------------------------------
+// Audit log config
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AuditConfig {
+    /// Path to JSONL append-only audit log file
+    #[serde(default)]
+    pub log_file: Option<String>,
+    /// Also write audit events to stdout as structured JSON
+    #[serde(default)]
+    pub stdout: bool,
+}
+
+// ---------------------------------------------------------------------------
+// Notification config
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct NotificationConfig {
+    /// Webhook URL for rotation event POST notifications
+    #[serde(default)]
+    pub webhook_url: Option<String>,
+    /// Optional Authorization header value (e.g. "Bearer token123")
+    #[serde(default)]
+    pub auth_header: Option<String>,
+    /// Events to notify on (default: all). Options: rotate, flag, scan
+    #[serde(default = "default_notification_events")]
+    pub events: Vec<String>,
+}
+
+fn default_notification_events() -> Vec<String> {
+    vec![
+        "rotate".to_string(),
+        "flag".to_string(),
+        "scan".to_string(),
+    ]
+}
+
+// ---------------------------------------------------------------------------
+// Rotation config
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RotationConfig {
+    #[serde(default = "default_rotation_period")]
+    pub period_months: u32,
+    #[serde(default = "default_secret_length")]
+    pub secret_length: usize,
+}
+
+impl Default for RotationConfig {
+    fn default() -> Self {
+        Self {
+            period_months: default_rotation_period(),
+            secret_length: default_secret_length(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Default value functions
+// ---------------------------------------------------------------------------
+
+fn default_file_dir() -> String {
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_else(|_| ".".to_string());
+    format!("{}/.asr/secrets", home)
+}
+
 fn default_api_method() -> String {
     "POST".to_string()
 }
@@ -139,6 +292,10 @@ fn default_api_timeout() -> u64 {
 
 fn default_db_port() -> u16 {
     5432
+}
+
+fn default_mysql_port() -> u16 {
+    3306
 }
 
 fn default_ssl_mode() -> String {
@@ -157,14 +314,6 @@ fn default_aws_region() -> String {
     "us-east-1".to_string()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RotationConfig {
-    #[serde(default = "default_rotation_period")]
-    pub period_months: u32,
-    #[serde(default = "default_secret_length")]
-    pub secret_length: usize,
-}
-
 fn default_rotation_period() -> u32 {
     6
 }
@@ -173,25 +322,17 @@ fn default_secret_length() -> usize {
     32
 }
 
-impl Default for RotationConfig {
-    fn default() -> Self {
-        Self {
-            period_months: default_rotation_period(),
-            secret_length: default_secret_length(),
-        }
-    }
-}
+// ---------------------------------------------------------------------------
+// Config impl
+// ---------------------------------------------------------------------------
 
 impl Config {
-    /// Load configuration from a TOML file
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         let contents = fs::read_to_string(path.as_ref())
             .with_context(|| format!("Failed to read config file: {:?}", path.as_ref()))?;
-
         toml::from_str(&contents).context("Failed to parse config file")
     }
 
-    /// Load configuration from environment variables
     pub fn from_env() -> Result<Self> {
         let backend = std::env::var("SECRET_BACKEND")
             .unwrap_or_else(|_| "vault".to_string())
@@ -225,6 +366,36 @@ impl Config {
             None
         };
 
+        let azure = if backend == "azure" {
+            Some(AzureConfig {
+                vault_url: std::env::var("AZURE_VAULT_URL")
+                    .context("AZURE_VAULT_URL environment variable not set")?,
+                tenant_id: std::env::var("AZURE_TENANT_ID").ok(),
+            })
+        } else {
+            None
+        };
+
+        let gcp = if backend == "gcp" {
+            Some(GcpConfig {
+                project_id: std::env::var("GCP_PROJECT_ID")
+                    .context("GCP_PROJECT_ID environment variable not set")?,
+                credentials_file: std::env::var("GOOGLE_APPLICATION_CREDENTIALS").ok(),
+            })
+        } else {
+            None
+        };
+
+        let ocp = if backend == "ocp" {
+            Some(OcpConfig {
+                namespace: std::env::var("OCP_NAMESPACE")
+                    .unwrap_or_else(|_| "default".to_string()),
+                kubeconfig: std::env::var("KUBECONFIG").ok(),
+                context: None,
+            })
+        } else {
+            None
+        };
 
         let rotation = RotationConfig {
             period_months: std::env::var("ROTATION_PERIOD_MONTHS")
@@ -255,40 +426,98 @@ impl Config {
             None
         };
 
+        let audit = AuditConfig {
+            log_file: std::env::var("ASR_AUDIT_LOG").ok(),
+            stdout: std::env::var("ASR_AUDIT_STDOUT")
+                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                .unwrap_or(false),
+        };
+
+        let notification = NotificationConfig {
+            webhook_url: std::env::var("ASR_WEBHOOK_URL").ok(),
+            auth_header: std::env::var("ASR_WEBHOOK_AUTH").ok(),
+            events: default_notification_events(),
+        };
+
         Ok(Self {
             backend,
             vault,
             aws,
             file,
+            azure,
+            gcp,
+            ocp,
             rotation,
             database,
             targets: None,
+            audit,
+            notification,
         })
     }
 
-    /// Create a sample configuration file
     pub fn create_sample<P: AsRef<Path>>(path: P) -> Result<()> {
-        let sample = Self {
-            backend: "vault".to_string(),
-            vault: Some(VaultConfig {
-                address: "http://127.0.0.1:8200".to_string(),
-                token: "your-vault-token-here".to_string(),
-                mount: "secret".to_string(),
-            }),
-            aws: Some(AwsConfig {
-                region: "us-east-1".to_string(),
-            }),
-            file: Some(FileConfig {
-                directory: default_file_dir(),
-            }),
-            rotation: RotationConfig::default(),
-            database: None,
-            targets: None,
-        };
+        let sample = r#"# Automatic Secret Rotation configuration
+# Set the backend to use: vault, aws, file, azure, gcp, ocp
+backend = "vault"
 
-        let toml_string =
-            toml::to_string_pretty(&sample).context("Failed to serialize sample config")?;
-        fs::write(path.as_ref(), toml_string)
+[vault]
+address = "http://127.0.0.1:8200"
+token = "your-vault-token-here"
+mount = "secret"
+
+# [aws]
+# region = "us-east-1"
+
+# [file]
+# directory = "~/.asr/secrets"
+
+# [azure]
+# vault_url = "https://my-vault.vault.azure.net"
+
+# [gcp]
+# project_id = "my-gcp-project"
+
+# [ocp]
+# namespace = "my-app"
+
+[rotation]
+period_months = 6
+secret_length = 32
+
+# Single PostgreSQL target (old form)
+# [targets.postgres]
+# host = "localhost"
+# port = 5432
+# database = "postgres"
+# username = "admin"
+# password_path = "admin/password"
+
+# Multiple targets (new form)
+# [[targets]]
+# type = "postgres"
+# host = "primary.db.internal"
+# database = "app"
+# username = "admin"
+# password_path = "myapp/db-admin-password"
+#
+# [[targets]]
+# type = "postgres"
+# host = "replica.db.internal"
+# database = "app"
+# username = "admin"
+# password_path = "myapp/db-admin-password"
+
+# [audit]
+# log_file = "/var/log/asr/audit.jsonl"
+# stdout = false
+
+# [notification]
+# webhook_url = "https://hooks.slack.com/services/..."
+# auth_header = "Bearer token123"
+# events = ["rotate", "flag", "scan"]
+"#;
+
+        fs::write(path.as_ref(), sample)
             .with_context(|| format!("Failed to write sample config to {:?}", path.as_ref()))?;
 
         Ok(())

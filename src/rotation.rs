@@ -75,6 +75,48 @@ pub async fn rotate_secret(
     rotate_secret_with_target(backend, path, secret_length, None, None).await
 }
 
+/// Rotate a secret and update password on all provided targets (multi-target support).
+pub async fn rotate_secret_with_targets(
+    backend: &dyn SecretBackend,
+    path: &str,
+    secret_length: usize,
+    targets: &[Box<dyn Target>],
+    target_username: Option<&str>,
+) -> Result<String> {
+    let target_refs: Vec<&dyn Target> = targets.iter().map(|t| t.as_ref()).collect();
+    let first = target_refs.first().copied();
+    let rest = if target_refs.len() > 1 { &target_refs[1..] } else { &[] };
+
+    // Rotate using the first target (generates the new secret and verifies)
+    let new_secret = rotate_secret_with_target(backend, path, secret_length, first, target_username).await?;
+
+    // Apply the same new secret to remaining targets
+    for &extra_target in rest {
+        if let Some(username) = target_username {
+            extra_target
+                .update_password(username, &new_secret)
+                .await
+                .with_context(|| {
+                    format!(
+                        "Failed to update password on {} target",
+                        extra_target.target_type()
+                    )
+                })?;
+            extra_target
+                .verify_connection(username, &new_secret, None)
+                .await
+                .with_context(|| {
+                    format!(
+                        "Failed to verify connection on {} target",
+                        extra_target.target_type()
+                    )
+                })?;
+        }
+    }
+
+    Ok(new_secret)
+}
+
 /// Rotate a secret and optionally update target password (database, API, etc.)
 pub async fn rotate_secret_with_target(
     backend: &dyn SecretBackend,
