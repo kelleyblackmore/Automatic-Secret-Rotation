@@ -111,6 +111,7 @@ pub struct OcpConfig {
 /// each variant in order: Vec first (array), then TargetsConfig (named table).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
+#[allow(clippy::large_enum_variant)]
 pub enum TargetsSpec {
     /// New: `[[targets]]` with `type = "postgres"` / `"api"` / `"mysql"`
     List(Vec<TargetEntry>),
@@ -239,11 +240,7 @@ pub struct NotificationConfig {
 }
 
 fn default_notification_events() -> Vec<String> {
-    vec![
-        "rotate".to_string(),
-        "flag".to_string(),
-        "scan".to_string(),
-    ]
+    vec!["rotate".to_string(), "flag".to_string(), "scan".to_string()]
 }
 
 // ---------------------------------------------------------------------------
@@ -388,8 +385,7 @@ impl Config {
 
         let ocp = if backend == "ocp" {
             Some(OcpConfig {
-                namespace: std::env::var("OCP_NAMESPACE")
-                    .unwrap_or_else(|_| "default".to_string()),
+                namespace: std::env::var("OCP_NAMESPACE").unwrap_or_else(|_| "default".to_string()),
                 kubeconfig: std::env::var("KUBECONFIG").ok(),
                 context: None,
             })

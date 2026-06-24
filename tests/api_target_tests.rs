@@ -1,5 +1,5 @@
-use secret_rotator::targets::ApiTarget;
 use secret_rotator::config::ApiTargetConfig;
+use secret_rotator::targets::ApiTarget;
 
 #[test]
 fn test_build_url_with_placeholder() {

@@ -1,5 +1,5 @@
-use secret_rotator::backends::{FileBackend, SecretBackend};
 use anyhow::Result;
+use secret_rotator::backends::{FileBackend, SecretBackend};
 use std::collections::HashMap;
 use tempfile::TempDir;
 

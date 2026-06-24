@@ -76,7 +76,7 @@ impl PostgresTarget {
 
     /// Quote a libpq connection string value, escaping backslashes and single quotes
     fn quote_conn_value(value: &str) -> String {
-        if value.contains(|c: char| c == '\'' || c == '\\' || c == ' ' || c == '=') {
+        if value.contains(['\'', '\\', ' ', '=']) {
             format!("'{}'", value.replace('\\', "\\\\").replace('\'', "\\'"))
         } else {
             value.to_string()

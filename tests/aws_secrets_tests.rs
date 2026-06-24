@@ -1,5 +1,5 @@
-use secret_rotator::backends::{AwsSecretsClient, create_test_client};
 use aws_sdk_secretsmanager::types::Tag;
+use secret_rotator::backends::{create_test_client, AwsSecretsClient};
 use std::collections::HashMap;
 
 #[test]
@@ -94,4 +94,3 @@ fn test_metadata_to_tags_empty() {
     let tags = client.metadata_to_tags(&metadata);
     assert!(tags.is_empty());
 }
-

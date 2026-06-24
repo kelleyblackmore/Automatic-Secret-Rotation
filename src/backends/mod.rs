@@ -24,7 +24,9 @@ pub mod ocp;
 #[allow(unused_imports)]
 pub use aws_secrets::{create_test_client, AwsSecretsClient};
 pub use file::FileBackend;
-pub use secret_backend::{SecretBackend, SecretData};
+pub use secret_backend::SecretBackend;
+#[allow(unused_imports)]
+pub use secret_backend::SecretData;
 #[allow(unused_imports)]
 pub use vault::{SecretMetadata, VaultBackend, VaultClient, VaultSecretData, VaultWriteRequest};
 

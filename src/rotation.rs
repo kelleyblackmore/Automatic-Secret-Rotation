@@ -85,10 +85,15 @@ pub async fn rotate_secret_with_targets(
 ) -> Result<String> {
     let target_refs: Vec<&dyn Target> = targets.iter().map(|t| t.as_ref()).collect();
     let first = target_refs.first().copied();
-    let rest = if target_refs.len() > 1 { &target_refs[1..] } else { &[] };
+    let rest = if target_refs.len() > 1 {
+        &target_refs[1..]
+    } else {
+        &[]
+    };
 
     // Rotate using the first target (generates the new secret and verifies)
-    let new_secret = rotate_secret_with_target(backend, path, secret_length, first, target_username).await?;
+    let new_secret =
+        rotate_secret_with_target(backend, path, secret_length, first, target_username).await?;
 
     // Apply the same new secret to remaining targets
     for &extra_target in rest {

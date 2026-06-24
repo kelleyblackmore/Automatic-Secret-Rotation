@@ -62,7 +62,8 @@ impl AzureKeyVaultBackend {
         }
 
         // Fall back to Azure IMDS (works on Azure VMs / App Service / AKS)
-        let resp = self.client
+        let resp = self
+            .client
             .get("http://169.254.169.254/metadata/identity/oauth2/token")
             .query(&[
                 ("api-version", "2018-02-01"),
@@ -74,7 +75,9 @@ impl AzureKeyVaultBackend {
             .context("Failed to fetch token from Azure IMDS")?;
 
         #[derive(Deserialize)]
-        struct ImdsToken { access_token: String }
+        struct ImdsToken {
+            access_token: String,
+        }
         let token: ImdsToken = resp
             .json()
             .await
@@ -97,7 +100,9 @@ impl AzureKeyVaultBackend {
             "{}/secrets/{}?api-version={}",
             self.vault_url, name, API_VERSION
         );
-        let resp = self.client.get(&url)
+        let resp = self
+            .client
+            .get(&url)
             .bearer_auth(&token)
             .send()
             .await
@@ -122,15 +127,14 @@ impl SecretBackend for AzureKeyVaultBackend {
         let bundle = self.get_secret_bundle(&name).await?;
 
         let value = bundle.value.unwrap_or_default();
-        let mut data: HashMap<String, String> = if let Ok(map) =
-            serde_json::from_str::<HashMap<String, String>>(&value)
-        {
-            map
-        } else {
-            let mut m = HashMap::new();
-            m.insert("value".to_string(), value);
-            m
-        };
+        let data: HashMap<String, String> =
+            if let Ok(map) = serde_json::from_str::<HashMap<String, String>>(&value) {
+                map
+            } else {
+                let mut m = HashMap::new();
+                m.insert("value".to_string(), value);
+                m
+            };
 
         let metadata = bundle.tags.map(|tags| {
             tags.into_iter()
@@ -155,7 +159,9 @@ impl SecretBackend for AzureKeyVaultBackend {
         );
         let body = serde_json::json!({ "value": value });
 
-        let resp = self.client.put(&url)
+        let resp = self
+            .client
+            .put(&url)
             .bearer_auth(&token)
             .json(&body)
             .send()
@@ -186,7 +192,9 @@ impl SecretBackend for AzureKeyVaultBackend {
         );
         let body = serde_json::json!({ "tags": tags });
 
-        let resp = self.client.patch(&url)
+        let resp = self
+            .client
+            .patch(&url)
             .bearer_auth(&token)
             .json(&body)
             .send()
@@ -232,7 +240,9 @@ impl SecretBackend for AzureKeyVaultBackend {
         );
 
         loop {
-            let resp = self.client.get(&url)
+            let resp = self
+                .client
+                .get(&url)
                 .bearer_auth(&token)
                 .send()
                 .await

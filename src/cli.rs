@@ -93,9 +93,7 @@ pub enum Commands {
     },
 
     /// Read a secret
-    Read {
-        path: String,
-    },
+    Read { path: String },
 
     /// List secrets at a path
     List {
@@ -189,12 +187,12 @@ pub async fn execute(cli: Cli) -> Result<()> {
                 .context("Failed to flag secret for rotation")?;
 
             audit.log(&AuditEvent::new("flagged", &path, backend.backend_type()));
-            notifier.notify_flag(&path, backend.backend_type(), period).await.ok();
+            notifier
+                .notify_flag(&path, backend.backend_type(), period)
+                .await
+                .ok();
 
-            println!(
-                "Flagged {} for rotation every {} months",
-                path, period
-            );
+            println!("Flagged {} for rotation every {} months", path, period);
         }
 
         Commands::Scan { path } => {
@@ -204,7 +202,11 @@ pub async fn execute(cli: Cli) -> Result<()> {
                     .context("Failed to scan for secrets needing rotation")?;
 
             let scan_path = if path.is_empty() { "/" } else { &path };
-            audit.log(&AuditEvent::new("scanned", scan_path, backend.backend_type()));
+            audit.log(&AuditEvent::new(
+                "scanned",
+                scan_path,
+                backend.backend_type(),
+            ));
 
             notifier
                 .notify_scan(&path, backend.backend_type(), secrets.len())
@@ -348,15 +350,11 @@ pub async fn execute(cli: Cli) -> Result<()> {
                 }
 
                 let target_username = if update_target {
-                    backend
-                        .read_metadata(secret_path)
-                        .await
-                        .ok()
-                        .and_then(|m| {
-                            m.get("target_username")
-                                .or_else(|| m.get("database_username"))
-                                .cloned()
-                        })
+                    backend.read_metadata(secret_path).await.ok().and_then(|m| {
+                        m.get("target_username")
+                            .or_else(|| m.get("database_username"))
+                            .cloned()
+                    })
                 } else {
                     None
                 };
@@ -412,10 +410,9 @@ pub async fn execute(cli: Cli) -> Result<()> {
                             let env_var = secret_path.replace('/', "_").to_uppercase();
                             match updater.update_env_var(&env_var, &new_value) {
                                 Ok(_) => println!("  Updated env var: {}", env_var),
-                                Err(e) => eprintln!(
-                                    "  Failed to update env var {}: {}",
-                                    env_var, e
-                                ),
+                                Err(e) => {
+                                    eprintln!("  Failed to update env var {}: {}", env_var, e)
+                                }
                             }
                         }
                     }
@@ -494,8 +491,7 @@ pub async fn execute(cli: Cli) -> Result<()> {
                 .get(&key)
                 .with_context(|| format!("Key '{}' not found in secret", key))?;
 
-            let updater =
-                env_updater::EnvUpdater::new().context("Failed to create EnvUpdater")?;
+            let updater = env_updater::EnvUpdater::new().context("Failed to create EnvUpdater")?;
             updater
                 .update_env_var(&env_var, value)
                 .with_context(|| format!("Failed to update environment variable {}", env_var))?;
@@ -542,10 +538,7 @@ pub async fn execute(cli: Cli) -> Result<()> {
                     .with_context(|| {
                         format!("Failed to update environment variable {}", env_var_name)
                     })?;
-                println!(
-                    "Updated env var '{}' in shell config files",
-                    env_var_name
-                );
+                println!("Updated env var '{}' in shell config files", env_var_name);
                 println!("Run 'source ~/.bashrc' (or ~/.zshrc) to apply changes");
             }
         }
@@ -582,8 +575,8 @@ pub async fn execute(cli: Cli) -> Result<()> {
                 let svc = service.unwrap_or_else(|| format!("asr/{}", path));
                 let acct = account.unwrap_or_else(|| key.clone());
 
-                let entry = keyring::Entry::new(&svc, &acct)
-                    .context("Failed to create Keychain entry")?;
+                let entry =
+                    keyring::Entry::new(&svc, &acct).context("Failed to create Keychain entry")?;
 
                 entry
                     .set_password(value)
@@ -659,9 +652,12 @@ async fn create_postgres_target(
             .read_secret(path)
             .await
             .context("Failed to read admin password from backend")?;
-        secret.data.values().next().cloned().ok_or_else(|| {
-            anyhow::anyhow!("No password found in secret at {}", path)
-        })?
+        secret
+            .data
+            .values()
+            .next()
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("No password found in secret at {}", path))?
     } else if let Some(ref pw) = config.password {
         pw.clone()
     } else {
@@ -691,9 +687,12 @@ async fn create_mysql_target(
             .read_secret(path)
             .await
             .context("Failed to read admin password from backend")?;
-        secret.data.values().next().cloned().ok_or_else(|| {
-            anyhow::anyhow!("No password found in secret at {}", path)
-        })?
+        secret
+            .data
+            .values()
+            .next()
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("No password found in secret at {}", path))?
     } else if let Some(ref pw) = config.password {
         pw.clone()
     } else {
@@ -742,39 +741,28 @@ async fn create_backend(config: &Config) -> Result<Backend> {
 
         "aws" => {
             let aws_config = config.aws.as_ref().ok_or_else(|| {
-                anyhow::anyhow!(
-                    "AWS config not found. Set AWS_REGION or add [aws] section."
-                )
+                anyhow::anyhow!("AWS config not found. Set AWS_REGION or add [aws] section.")
             })?;
-            let client =
-                crate::backends::AwsSecretsClient::new(Some(aws_config.region.clone()))
-                    .await
-                    .context("Failed to create AWS Secrets Manager client")?;
+            let client = crate::backends::AwsSecretsClient::new(Some(aws_config.region.clone()))
+                .await
+                .context("Failed to create AWS Secrets Manager client")?;
             Ok(Box::new(client))
         }
 
         "file" => {
             let file_config = config.file.as_ref().ok_or_else(|| {
-                anyhow::anyhow!(
-                    "File config not found. Set ASR_FILE_DIR or add [file] section."
-                )
+                anyhow::anyhow!("File config not found. Set ASR_FILE_DIR or add [file] section.")
             })?;
             let backend = crate::backends::FileBackend::new(&file_config.directory)
                 .context("Failed to create file backend")?;
             Ok(Box::new(backend))
         }
 
-        "azure" => {
-            create_azure_backend(config).await
-        }
+        "azure" => create_azure_backend(config).await,
 
-        "gcp" => {
-            create_gcp_backend(config).await
-        }
+        "gcp" => create_gcp_backend(config).await,
 
-        "ocp" | "k8s" | "kubernetes" => {
-            create_ocp_backend(config).await
-        }
+        "ocp" | "k8s" | "kubernetes" => create_ocp_backend(config).await,
 
         other => {
             anyhow::bail!(
@@ -788,9 +776,7 @@ async fn create_backend(config: &Config) -> Result<Backend> {
 #[cfg(feature = "azure")]
 async fn create_azure_backend(config: &Config) -> Result<Backend> {
     let azure_config = config.azure.as_ref().ok_or_else(|| {
-        anyhow::anyhow!(
-            "Azure config not found. Set AZURE_VAULT_URL or add [azure] section."
-        )
+        anyhow::anyhow!("Azure config not found. Set AZURE_VAULT_URL or add [azure] section.")
     })?;
     let backend = crate::backends::AzureKeyVaultBackend::new(azure_config)
         .await
@@ -809,9 +795,7 @@ async fn create_azure_backend(_config: &Config) -> Result<Backend> {
 #[cfg(feature = "gcp")]
 async fn create_gcp_backend(config: &Config) -> Result<Backend> {
     let gcp_config = config.gcp.as_ref().ok_or_else(|| {
-        anyhow::anyhow!(
-            "GCP config not found. Set GCP_PROJECT_ID or add [gcp] section."
-        )
+        anyhow::anyhow!("GCP config not found. Set GCP_PROJECT_ID or add [gcp] section.")
     })?;
     let backend = crate::backends::GcpSecretManagerBackend::new(gcp_config)
         .await
@@ -830,9 +814,7 @@ async fn create_gcp_backend(_config: &Config) -> Result<Backend> {
 #[cfg(feature = "ocp")]
 async fn create_ocp_backend(config: &Config) -> Result<Backend> {
     let ocp_config = config.ocp.as_ref().ok_or_else(|| {
-        anyhow::anyhow!(
-            "OCP config not found. Set OCP_NAMESPACE or add [ocp] section."
-        )
+        anyhow::anyhow!("OCP config not found. Set OCP_NAMESPACE or add [ocp] section.")
     })?;
     let backend = crate::backends::OcpBackend::new(ocp_config)
         .await

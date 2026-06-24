@@ -13,7 +13,7 @@ use std::collections::HashMap;
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use super::secret_backend::{SecretBackend, SecretData};
 use crate::config::GcpConfig;
@@ -82,7 +82,9 @@ impl GcpSecretManagerBackend {
             .context("Failed to fetch token from GCP metadata server. Set GOOGLE_ACCESS_TOKEN env var if not running on GCP.")?;
 
         #[derive(Deserialize)]
-        struct Token { access_token: String }
+        struct Token {
+            access_token: String,
+        }
         let token: Token = resp.json().await.context("Failed to parse GCP token")?;
         Ok(token.access_token)
     }
@@ -107,7 +109,9 @@ impl GcpSecretManagerBackend {
             "replication": { "automatic": {} }
         });
 
-        let resp = self.client.post(&url)
+        let resp = self
+            .client
+            .post(&url)
             .bearer_auth(token)
             .json(&body)
             .send()
@@ -131,7 +135,9 @@ impl SecretBackend for GcpSecretManagerBackend {
         let resource = self.secret_resource_name(path);
         let url = format!("{}/{}/versions/latest:access", API_BASE, resource);
 
-        let resp = self.client.get(&url)
+        let resp = self
+            .client
+            .get(&url)
             .bearer_auth(&token)
             .send()
             .await
@@ -148,17 +154,16 @@ impl SecretBackend for GcpSecretManagerBackend {
         let bytes = base64_decode(&encoded).context("Failed to decode GCP secret payload")?;
         let value = String::from_utf8(bytes).context("GCP secret is not valid UTF-8")?;
 
-        let mut data: HashMap<String, String> = if let Ok(map) =
-            serde_json::from_str::<HashMap<String, String>>(&value)
-        {
-            map
-        } else {
-            let mut m = HashMap::new();
-            m.insert("value".to_string(), value);
-            m
-        };
+        let data: HashMap<String, String> =
+            if let Ok(map) = serde_json::from_str::<HashMap<String, String>>(&value) {
+                map
+            } else {
+                let mut m = HashMap::new();
+                m.insert("value".to_string(), value);
+                m
+            };
 
-        let metadata = self.read_metadata(path).await.ok().map(|m| m);
+        let metadata = self.read_metadata(path).await.ok();
 
         Ok(SecretData { data, metadata })
     }
@@ -174,7 +179,9 @@ impl SecretBackend for GcpSecretManagerBackend {
         let url = format!("{}/{}/versions:add", API_BASE, resource);
         let body = serde_json::json!({ "payload": { "data": encoded } });
 
-        let resp = self.client.post(&url)
+        let resp = self
+            .client
+            .post(&url)
             .bearer_auth(&token)
             .json(&body)
             .send()
@@ -207,7 +214,9 @@ impl SecretBackend for GcpSecretManagerBackend {
 
         let body = serde_json::json!({ "labels": labels });
 
-        let resp = self.client.patch(&url)
+        let resp = self
+            .client
+            .patch(&url)
             .bearer_auth(&token)
             .json(&body)
             .send()
@@ -217,7 +226,12 @@ impl SecretBackend for GcpSecretManagerBackend {
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
-            anyhow::bail!("GCP Secret Manager metadata update {} → {}: {}", path, status, text);
+            anyhow::bail!(
+                "GCP Secret Manager metadata update {} → {}: {}",
+                path,
+                status,
+                text
+            );
         }
 
         Ok(())
@@ -228,7 +242,9 @@ impl SecretBackend for GcpSecretManagerBackend {
         let resource = self.secret_resource_name(path);
         let url = format!("{}/{}", API_BASE, resource);
 
-        let resp = self.client.get(&url)
+        let resp = self
+            .client
+            .get(&url)
             .bearer_auth(&token)
             .send()
             .await
@@ -237,7 +253,12 @@ impl SecretBackend for GcpSecretManagerBackend {
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
-            anyhow::bail!("GCP Secret Manager metadata read {} → {}: {}", path, status, text);
+            anyhow::bail!(
+                "GCP Secret Manager metadata read {} → {}: {}",
+                path,
+                status,
+                text
+            );
         }
 
         let secret: SecretResource = resp.json().await.context("Failed to parse GCP secret")?;
@@ -279,7 +300,9 @@ impl SecretBackend for GcpSecretManagerBackend {
                 url.push_str(&format!("&filter=name:{}-", prefix));
             }
 
-            let resp = self.client.get(&url)
+            let resp = self
+                .client
+                .get(&url)
                 .bearer_auth(&token)
                 .send()
                 .await
@@ -291,7 +314,8 @@ impl SecretBackend for GcpSecretManagerBackend {
                 anyhow::bail!("GCP Secret Manager list → {}: {}", status, text);
             }
 
-            let list: ListSecretsResponse = resp.json().await.context("Failed to parse secret list")?;
+            let list: ListSecretsResponse =
+                resp.json().await.context("Failed to parse secret list")?;
 
             for secret in list.secrets.unwrap_or_default() {
                 all.push(Self::path_from_resource_name(&secret.name));
@@ -312,9 +336,8 @@ impl SecretBackend for GcpSecretManagerBackend {
 }
 
 fn base64_encode(bytes: &[u8]) -> String {
-    use std::fmt::Write as FmtWrite;
     const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity((bytes.len() + 2) / 3 * 4);
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
         let b0 = chunk[0] as usize;
         let b1 = chunk.get(1).copied().unwrap_or(0) as usize;

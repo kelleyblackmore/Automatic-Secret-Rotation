@@ -43,6 +43,7 @@ impl AuditEvent {
         }
     }
 
+    #[allow(dead_code)]
     pub fn with_status(mut self, status: &str) -> Self {
         self.status = status.to_string();
         self
@@ -59,11 +60,13 @@ impl AuditEvent {
         self
     }
 
+    #[allow(dead_code)]
     pub fn with_target(mut self, target: &str) -> Self {
         self.target = Some(target.to_string());
         self
     }
 
+    #[allow(dead_code)]
     pub fn with_username(mut self, username: &str) -> Self {
         self.username = Some(username.to_string());
         self
@@ -86,6 +89,7 @@ impl AuditLogger {
         }
     }
 
+    #[allow(dead_code)]
     pub fn is_enabled(&self) -> bool {
         self.enabled
     }

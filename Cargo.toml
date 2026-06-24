@@ -47,7 +47,7 @@ tokio-postgres = "0.7"
 
 # Optional: Kubernetes / OpenShift backend
 kube = { version = "0.98", features = ["runtime", "derive"], optional = true }
-k8s-openapi = { version = "0.23", features = ["v1_30"], optional = true }
+k8s-openapi = { version = "0.24", features = ["v1_31"], optional = true }
 
 # Optional: MySQL/MariaDB target
 mysql_async = { version = "0.34", optional = true, default-features = false, features = ["minimal"] }

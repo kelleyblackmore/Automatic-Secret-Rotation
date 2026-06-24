@@ -31,15 +31,12 @@ impl MysqlTarget {
         let pool = Pool::new(Opts::from(opts));
 
         // Verify connectivity on creation
-        let conn = pool
-            .get_conn()
-            .await
-            .with_context(|| {
-                format!(
-                    "Failed to connect to MySQL/MariaDB at {}:{}",
-                    config.host, config.port
-                )
-            })?;
+        let conn = pool.get_conn().await.with_context(|| {
+            format!(
+                "Failed to connect to MySQL/MariaDB at {}:{}",
+                config.host, config.port
+            )
+        })?;
         drop(conn);
 
         Ok(Self {

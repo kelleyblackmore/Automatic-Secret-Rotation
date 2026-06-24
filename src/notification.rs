@@ -24,6 +24,7 @@ impl NotificationClient {
         }
     }
 
+    #[allow(dead_code)]
     pub fn is_enabled(&self) -> bool {
         self.webhook_url.is_some()
     }
@@ -61,12 +62,7 @@ impl NotificationClient {
     }
 
     /// Send a webhook notification for a flag event.
-    pub async fn notify_flag(
-        &self,
-        path: &str,
-        backend: &str,
-        period_months: u32,
-    ) -> Result<()> {
+    pub async fn notify_flag(&self, path: &str, backend: &str, period_months: u32) -> Result<()> {
         if !self.should_notify("flag") {
             return Ok(());
         }
@@ -84,12 +80,7 @@ impl NotificationClient {
     }
 
     /// Send a webhook notification for a scan event.
-    pub async fn notify_scan(
-        &self,
-        path: &str,
-        backend: &str,
-        secrets_due: usize,
-    ) -> Result<()> {
+    pub async fn notify_scan(&self, path: &str, backend: &str, secrets_due: usize) -> Result<()> {
         if !self.should_notify("scan") {
             return Ok(());
         }

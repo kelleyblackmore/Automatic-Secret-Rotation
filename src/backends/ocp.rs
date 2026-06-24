@@ -40,9 +40,9 @@ impl OcpBackend {
             Client::try_from(config).context("Failed to create Kubernetes client")?
         } else {
             // Use in-cluster auth or default kubeconfig (~/.kube/config)
-            Client::try_default()
-                .await
-                .context("Failed to create Kubernetes client (tried in-cluster auth and ~/.kube/config)")?
+            Client::try_default().await.context(
+                "Failed to create Kubernetes client (tried in-cluster auth and ~/.kube/config)",
+            )?
         };
 
         Ok(Self {
@@ -62,11 +62,7 @@ impl OcpBackend {
     }
 
     fn annotation_key(meta_key: &str) -> String {
-        format!(
-            "{}{}",
-            ANNOTATION_PREFIX,
-            meta_key.replace('_', "-")
-        )
+        format!("{}{}", ANNOTATION_PREFIX, meta_key.replace('_', "-"))
     }
 
     fn meta_key_from_annotation(annotation: &str) -> Option<String> {
@@ -95,20 +91,14 @@ impl SecretBackend for OcpBackend {
             .data
             .unwrap_or_default()
             .into_iter()
-            .filter_map(|(k, v)| {
-                String::from_utf8(v.0).ok().map(|s| (k, s))
-            })
+            .filter_map(|(k, v)| String::from_utf8(v.0).ok().map(|s| (k, s)))
             .collect();
 
-        let metadata: Option<HashMap<String, String>> = secret
-            .metadata
-            .annotations
-            .map(|annotations| {
+        let metadata: Option<HashMap<String, String>> =
+            secret.metadata.annotations.map(|annotations| {
                 annotations
                     .into_iter()
-                    .filter_map(|(k, v)| {
-                        Self::meta_key_from_annotation(&k).map(|mk| (mk, v))
-                    })
+                    .filter_map(|(k, v)| Self::meta_key_from_annotation(&k).map(|mk| (mk, v)))
                     .collect()
             });
 
@@ -142,16 +132,13 @@ impl SecretBackend for OcpBackend {
                 let patch = serde_json::json!({
                     "data": secret.data
                 });
-                api.patch(
-                    &name,
-                    &PatchParams::apply("asr"),
-                    &Patch::Merge(&patch),
-                )
-                .await
-                .with_context(|| format!("Failed to update Kubernetes secret: {}", path))?;
+                api.patch(&name, &PatchParams::apply("asr"), &Patch::Merge(&patch))
+                    .await
+                    .with_context(|| format!("Failed to update Kubernetes secret: {}", path))?;
             }
             Err(e) => {
-                return Err(e).with_context(|| format!("Failed to create Kubernetes secret: {}", path));
+                return Err(e)
+                    .with_context(|| format!("Failed to create Kubernetes secret: {}", path));
             }
         }
 
@@ -173,13 +160,9 @@ impl SecretBackend for OcpBackend {
             }
         });
 
-        api.patch(
-            &name,
-            &PatchParams::apply("asr"),
-            &Patch::Merge(&patch),
-        )
-        .await
-        .with_context(|| format!("Failed to update Kubernetes secret annotations: {}", path))?;
+        api.patch(&name, &PatchParams::apply("asr"), &Patch::Merge(&patch))
+            .await
+            .with_context(|| format!("Failed to update Kubernetes secret annotations: {}", path))?;
 
         Ok(())
     }
@@ -198,9 +181,7 @@ impl SecretBackend for OcpBackend {
             .annotations
             .unwrap_or_default()
             .into_iter()
-            .filter_map(|(k, v)| {
-                Self::meta_key_from_annotation(&k).map(|mk| (mk, v))
-            })
+            .filter_map(|(k, v)| Self::meta_key_from_annotation(&k).map(|mk| (mk, v)))
             .collect();
 
         Ok(metadata)
