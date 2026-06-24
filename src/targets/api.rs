@@ -18,10 +18,7 @@ impl ApiTarget {
     pub async fn new(config: &ApiTargetConfig) -> Result<Self> {
         info!("Creating API target for: {}", config.base_url);
 
-        let client = Client::builder()
-            .timeout(std::time::Duration::from_secs(config.timeout_seconds))
-            .build()
-            .context("Failed to create HTTP client")?;
+        let client = crate::util::http::build_http_client(config.timeout_seconds)?;
 
         Ok(Self {
             config: Arc::new(config.clone()),
@@ -101,14 +98,7 @@ impl Target for ApiTarget {
         let response = request.send().await.context("Failed to send API request")?;
 
         // Check response status
-        let status = response.status();
-        if !status.is_success() {
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-            anyhow::bail!("API request failed with status {}: {}", status, error_text);
-        }
+        crate::util::http::require_success(response, "API request").await?;
 
         info!(
             "Successfully updated password via API for user: {}",

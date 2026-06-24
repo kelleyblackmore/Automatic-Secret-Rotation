@@ -1,5 +1,5 @@
-use secret_rotator::env_updater::EnvUpdater;
 use anyhow::Result;
+use secret_rotator::env_updater::EnvUpdater;
 use std::fs;
 use tempfile::TempDir;
 

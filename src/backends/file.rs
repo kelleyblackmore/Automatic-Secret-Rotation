@@ -35,6 +35,13 @@ impl FileBackend {
         if !base_dir.exists() {
             fs::create_dir_all(&base_dir)
                 .with_context(|| format!("Failed to create base directory: {:?}", base_dir))?;
+            // Restrict to owner only on Unix (0o700)
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(&base_dir, fs::Permissions::from_mode(0o700))
+                    .with_context(|| format!("Failed to set permissions on {:?}", base_dir))?;
+            }
             info!("Created base directory: {:?}", base_dir);
         }
 
@@ -77,7 +84,35 @@ impl FileBackend {
         if let Some(parent) = file_path.parent() {
             fs::create_dir_all(parent)
                 .with_context(|| format!("Failed to create parent directory: {:?}", parent))?;
+            // Restrict directory to owner only on Unix
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(parent, fs::Permissions::from_mode(0o700))
+                    .with_context(|| format!("Failed to set permissions on {:?}", parent))?;
+            }
         }
+        Ok(())
+    }
+
+    /// Write content to a file and restrict it to owner-only read/write (0o600 on Unix).
+    fn write_restricted(path: &Path, content: &str) -> Result<()> {
+        fs::write(path, content).with_context(|| format!("Failed to write file: {:?}", path))?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+                .with_context(|| format!("Failed to set permissions on {:?}", path))?;
+        }
+
+        #[cfg(windows)]
+        tracing::warn!(
+            "File {:?} was written but Windows ACLs were not set — \
+             protect it with folder-level permissions manually.",
+            path
+        );
+
         Ok(())
     }
 }
@@ -123,8 +158,7 @@ impl SecretBackend for FileBackend {
             content.push_str(&Self::format_line(key, value));
         }
 
-        fs::write(&file_path, content)
-            .with_context(|| format!("Failed to write secret file: {:?}", file_path))?;
+        Self::write_restricted(&file_path, &content)?;
 
         debug!("Successfully wrote secret to: {:?}", file_path);
         Ok(())
@@ -144,8 +178,7 @@ impl SecretBackend for FileBackend {
             content.push_str(&Self::format_line(key, value));
         }
 
-        fs::write(&meta_path, content)
-            .with_context(|| format!("Failed to write metadata file: {:?}", meta_path))?;
+        Self::write_restricted(&meta_path, &content)?;
 
         Ok(())
     }

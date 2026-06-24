@@ -24,7 +24,7 @@ impl EnvUpdater {
     ///
     /// This is useful for testing or when you need to update environment variables
     /// in a different user's home directory.
-    #[cfg_attr(not(test), allow(dead_code))] // Used in tests
+    #[allow(dead_code)]
     pub fn with_home_dir(home_dir: PathBuf) -> Self {
         Self { home_dir }
     }

@@ -1,6 +1,6 @@
+use chrono::{Duration, Utc};
 use secret_rotator::rotation::{generate_secret, needs_rotation};
 use std::collections::HashMap;
-use chrono::{Duration, Utc};
 
 #[test]
 fn test_generate_secret() {

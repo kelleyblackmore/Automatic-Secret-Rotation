@@ -1,4 +1,4 @@
-use secret_rotator::config::{Config, RotationConfig};
+use secret_rotator::config::{Config, RotationConfig, TargetsSpec, VaultConfig};
 use std::fs;
 use tempfile::TempDir;
 
@@ -71,6 +71,14 @@ directory = "/tmp/test-secrets"
     assert_eq!(config.file.as_ref().unwrap().directory, "/tmp/test-secrets");
 }
 
+/// Helper to extract TargetsConfig from the Named variant of TargetsSpec.
+fn named_targets(config: &Config) -> &secret_rotator::config::TargetsConfig {
+    match config.targets.as_ref().unwrap() {
+        TargetsSpec::Named(named) => named,
+        TargetsSpec::List(_) => panic!("Expected Named targets, got List"),
+    }
+}
+
 #[test]
 fn test_config_from_file_with_targets() {
     let temp_dir = TempDir::new().unwrap();
@@ -94,7 +102,7 @@ ssl_mode = "require"
 
     let config = Config::from_file(&config_path).unwrap();
     assert!(config.targets.is_some());
-    let postgres = config.targets.as_ref().unwrap().postgres.as_ref().unwrap();
+    let postgres = named_targets(&config).postgres.as_ref().unwrap();
     assert_eq!(postgres.host, "localhost");
     assert_eq!(postgres.port, 5432);
     assert_eq!(postgres.database, "testdb");
@@ -126,7 +134,7 @@ auth_header = "Bearer token123"
     fs::write(&config_path, config_content).unwrap();
 
     let config = Config::from_file(&config_path).unwrap();
-    let api = config.targets.as_ref().unwrap().api.as_ref().unwrap();
+    let api = named_targets(&config).api.as_ref().unwrap();
     assert_eq!(api.base_url, "https://api.example.com");
     assert_eq!(api.endpoint, "/users/{username}/password");
     assert_eq!(api.method, "PUT");
@@ -134,6 +142,43 @@ auth_header = "Bearer token123"
     assert_eq!(api.username_field.as_ref().unwrap(), "user");
     assert_eq!(api.timeout_seconds, 60);
     assert_eq!(api.auth_header.as_ref().unwrap(), "Bearer token123");
+}
+
+#[test]
+fn test_config_from_file_multi_target_list() {
+    let temp_dir = TempDir::new().unwrap();
+    let config_path = temp_dir.path().join("config.toml");
+
+    let config_content = r#"
+backend = "vault"
+[vault]
+address = "http://localhost:8200"
+token = "test-token"
+
+[[targets]]
+type = "postgres"
+host = "primary.db"
+database = "app"
+username = "admin"
+password_path = "myapp/admin"
+
+[[targets]]
+type = "postgres"
+host = "replica.db"
+database = "app"
+username = "admin"
+password_path = "myapp/admin"
+"#;
+    fs::write(&config_path, config_content).unwrap();
+
+    let config = Config::from_file(&config_path).unwrap();
+    assert!(config.targets.is_some());
+    match config.targets.as_ref().unwrap() {
+        TargetsSpec::List(entries) => {
+            assert_eq!(entries.len(), 2, "Expected 2 targets");
+        }
+        TargetsSpec::Named(_) => panic!("Expected List targets, got Named"),
+    }
 }
 
 #[test]
@@ -150,7 +195,6 @@ token = "test-token"
     fs::write(&config_path, config_content).unwrap();
 
     let config = Config::from_file(&config_path).unwrap();
-    // Test defaults
     assert_eq!(config.vault.as_ref().unwrap().mount, "secret");
     assert_eq!(config.rotation.period_months, 6);
     assert_eq!(config.rotation.secret_length, 32);
@@ -165,10 +209,9 @@ fn test_config_create_sample() {
 
     assert!(config_path.exists());
     let config = Config::from_file(&config_path).unwrap();
+    // Sample uses vault backend with required fields
     assert_eq!(config.backend, "vault");
     assert!(config.vault.is_some());
-    assert!(config.aws.is_some());
-    assert!(config.file.is_some());
 }
 
 #[test]
@@ -185,9 +228,9 @@ username = "admin"
     fs::write(&config_path, config_content).unwrap();
 
     let config = Config::from_file(&config_path).unwrap();
-    let postgres = config.targets.as_ref().unwrap().postgres.as_ref().unwrap();
-    assert_eq!(postgres.port, 5432); // default port
-    assert_eq!(postgres.ssl_mode, "prefer"); // default ssl_mode
+    let postgres = named_targets(&config).postgres.as_ref().unwrap();
+    assert_eq!(postgres.port, 5432);
+    assert_eq!(postgres.ssl_mode, "prefer");
 }
 
 #[test]
@@ -203,8 +246,156 @@ endpoint = "/password"
     fs::write(&config_path, config_content).unwrap();
 
     let config = Config::from_file(&config_path).unwrap();
-    let api = config.targets.as_ref().unwrap().api.as_ref().unwrap();
-    assert_eq!(api.method, "POST"); // default method
-    assert_eq!(api.password_field, "password"); // default password_field
-    assert_eq!(api.timeout_seconds, 30); // default timeout
+    let api = named_targets(&config).api.as_ref().unwrap();
+    assert_eq!(api.method, "POST");
+    assert_eq!(api.password_field, "password");
+    assert_eq!(api.timeout_seconds, 30);
+}
+
+#[test]
+fn test_vault_auth_method_default() {
+    let temp_dir = TempDir::new().unwrap();
+    let config_path = temp_dir.path().join("config.toml");
+
+    let config_content = r#"
+backend = "vault"
+[vault]
+address = "http://localhost:8200"
+token = "dev-token"
+"#;
+    fs::write(&config_path, config_content).unwrap();
+
+    let config = Config::from_file(&config_path).unwrap();
+    let vault = config.vault.as_ref().unwrap();
+    assert_eq!(vault.auth_method, "token");
+    assert_eq!(vault.token.as_deref(), Some("dev-token"));
+    assert!(vault.approle.is_none());
+    assert!(vault.kubernetes.is_none());
+    assert!(vault.aws_iam.is_none());
+    assert!(vault.jwt.is_none());
+}
+
+#[test]
+fn test_vault_approle_config() {
+    let temp_dir = TempDir::new().unwrap();
+    let config_path = temp_dir.path().join("config.toml");
+
+    let config_content = r#"
+backend = "vault"
+[vault]
+address = "https://vault.example.com"
+auth_method = "approle"
+
+[vault.approle]
+role_id = "my-role-id"
+secret_id_env = "VAULT_SECRET_ID"
+"#;
+    fs::write(&config_path, config_content).unwrap();
+
+    let config = Config::from_file(&config_path).unwrap();
+    let vault = config.vault.as_ref().unwrap();
+    assert_eq!(vault.auth_method, "approle");
+    assert!(vault.token.is_none());
+
+    let ar = vault.approle.as_ref().unwrap();
+    assert_eq!(ar.role_id, "my-role-id");
+    assert_eq!(ar.secret_id_env.as_deref(), Some("VAULT_SECRET_ID"));
+    assert!(ar.secret_id.is_none());
+    assert_eq!(ar.mount, "approle"); // default
+}
+
+#[test]
+fn test_vault_kubernetes_config() {
+    let temp_dir = TempDir::new().unwrap();
+    let config_path = temp_dir.path().join("config.toml");
+
+    let config_content = r#"
+backend = "vault"
+[vault]
+address = "https://vault.example.com"
+auth_method = "kubernetes"
+
+[vault.kubernetes]
+role = "my-asr-role"
+mount = "k8s-prod"
+"#;
+    fs::write(&config_path, config_content).unwrap();
+
+    let config = Config::from_file(&config_path).unwrap();
+    let vault = config.vault.as_ref().unwrap();
+    let k8s = vault.kubernetes.as_ref().unwrap();
+    assert_eq!(k8s.role, "my-asr-role");
+    assert_eq!(k8s.mount, "k8s-prod");
+    // Default SA token path
+    assert_eq!(
+        k8s.sa_token_path,
+        "/var/run/secrets/kubernetes.io/serviceaccount/token"
+    );
+}
+
+#[test]
+fn test_vault_aws_iam_config() {
+    let temp_dir = TempDir::new().unwrap();
+    let config_path = temp_dir.path().join("config.toml");
+
+    let config_content = r#"
+backend = "vault"
+[vault]
+address = "https://vault.example.com"
+auth_method = "aws_iam"
+
+[vault.aws_iam]
+role = "my-vault-role"
+header_value = "vault.example.com"
+"#;
+    fs::write(&config_path, config_content).unwrap();
+
+    let config = Config::from_file(&config_path).unwrap();
+    let vault = config.vault.as_ref().unwrap();
+    let aws = vault.aws_iam.as_ref().unwrap();
+    assert_eq!(aws.role, "my-vault-role");
+    assert_eq!(aws.header_value.as_deref(), Some("vault.example.com"));
+    assert_eq!(aws.mount, "aws"); // default
+}
+
+#[test]
+fn test_vault_jwt_config() {
+    let temp_dir = TempDir::new().unwrap();
+    let config_path = temp_dir.path().join("config.toml");
+
+    let config_content = r#"
+backend = "vault"
+[vault]
+address = "https://vault.example.com"
+auth_method = "jwt"
+
+[vault.jwt]
+role = "github-actions-role"
+token_env = "CI_JOB_JWT_V2"
+mount = "jwt"
+"#;
+    fs::write(&config_path, config_content).unwrap();
+
+    let config = Config::from_file(&config_path).unwrap();
+    let vault = config.vault.as_ref().unwrap();
+    let jwt = vault.jwt.as_ref().unwrap();
+    assert_eq!(jwt.role, "github-actions-role");
+    assert_eq!(jwt.token_env.as_deref(), Some("CI_JOB_JWT_V2"));
+    assert_eq!(jwt.mount, "jwt");
+}
+
+#[test]
+fn test_vault_config_no_token_is_ok() {
+    // Token-less configs are valid for non-token auth methods
+    let config: VaultConfig = toml::from_str(
+        r#"
+address = "https://vault.example.com"
+auth_method = "kubernetes"
+[kubernetes]
+role = "asr"
+"#,
+    )
+    .unwrap();
+    assert!(config.token.is_none());
+    assert_eq!(config.auth_method, "kubernetes");
 }

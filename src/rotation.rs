@@ -75,6 +75,49 @@ pub async fn rotate_secret(
     rotate_secret_with_target(backend, path, secret_length, None, None).await
 }
 
+/// Rotate a secret and update password on all provided targets (multi-target support).
+pub async fn rotate_secret_with_targets(
+    backend: &dyn SecretBackend,
+    path: &str,
+    secret_length: usize,
+    targets: &[Box<dyn Target>],
+    target_username: Option<&str>,
+) -> Result<String> {
+    let target_refs: Vec<&dyn Target> = targets.iter().map(|t| t.as_ref()).collect();
+    let first = target_refs.first().copied();
+    let rest = if target_refs.len() > 1 {
+        &target_refs[1..]
+    } else {
+        &[]
+    };
+
+    // Rotate using the first target (generates the new secret and verifies)
+    let new_secret =
+        rotate_secret_with_target(backend, path, secret_length, first, target_username).await?;
+
+    // Apply the same new secret to remaining targets
+    for &extra_target in rest {
+        if extra_target.requires_username() && target_username.is_none() {
+            anyhow::bail!(
+                "{} target requires a username — pass --target-username or set \
+                 target_username in the secret metadata",
+                extra_target.target_type()
+            );
+        }
+        let username = target_username.unwrap_or("");
+        extra_target
+            .update_password(username, &new_secret)
+            .await
+            .with_context(|| format!("Failed to update {} target", extra_target.target_type()))?;
+        extra_target
+            .verify_connection(username, &new_secret, None)
+            .await
+            .with_context(|| format!("Failed to verify {} target", extra_target.target_type()))?;
+    }
+
+    Ok(new_secret)
+}
+
 /// Rotate a secret and optionally update target password (database, API, etc.)
 pub async fn rotate_secret_with_target(
     backend: &dyn SecretBackend,
@@ -117,27 +160,36 @@ pub async fn rotate_secret_with_target(
         .await
         .context("Failed to write rotated secret")?;
 
-    // Update target password if configured
+    // Update target if configured.
+    // Username-free targets (GitLab, GitHub) are called with an empty username;
+    // targets that require a username (Postgres, MySQL) bail if none is provided.
     if let Some(target) = target {
-        if let Some(username) = target_username {
-            info!(
-                "Updating {} password for user: {}",
-                target.target_type(),
-                username
+        if target.requires_username() && target_username.is_none() {
+            anyhow::bail!(
+                "{} target requires a username — pass --target-username or set \
+                 target_username in the secret metadata",
+                target.target_type()
             );
-            target
-                .update_password(username, &new_secret)
-                .await
-                .with_context(|| format!("Failed to update {} password", target.target_type()))?;
-
-            // Optionally verify the new password works
-            target
-                .verify_connection(username, &new_secret, None)
-                .await
-                .with_context(|| {
-                    format!("Failed to verify new {} password", target.target_type())
-                })?;
         }
+        let username = target_username.unwrap_or("");
+        info!(
+            "Updating {} target{}",
+            target.target_type(),
+            if username.is_empty() {
+                String::new()
+            } else {
+                format!(" for user: {}", username)
+            }
+        );
+        target
+            .update_password(username, &new_secret)
+            .await
+            .with_context(|| format!("Failed to update {} target", target.target_type()))?;
+
+        target
+            .verify_connection(username, &new_secret, None)
+            .await
+            .with_context(|| format!("Failed to verify new {} value", target.target_type()))?;
     }
 
     // Update metadata with rotation timestamp

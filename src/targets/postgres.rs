@@ -1,6 +1,7 @@
+use crate::util::tls::{parse_ssl_mode, TlsMode};
 use anyhow::{Context, Result};
 use std::sync::Arc;
-use tokio_postgres::{Client, NoTls};
+use tokio_postgres::Client;
 use tracing::{debug, info};
 
 use crate::config::PostgresTargetConfig;
@@ -29,16 +30,7 @@ impl PostgresTarget {
             &config.ssl_mode,
         );
 
-        let (client, connection) = tokio_postgres::connect(&connection_string, NoTls)
-            .await
-            .context("Failed to connect to PostgreSQL")?;
-
-        // Spawn connection handler
-        let _connection_handle = tokio::spawn(async move {
-            if let Err(e) = connection.await {
-                eprintln!("PostgreSQL connection error: {}", e);
-            }
-        });
+        let client = pg_connect(&connection_string, &config.ssl_mode).await?;
 
         // Test the connection
         client
@@ -76,7 +68,7 @@ impl PostgresTarget {
 
     /// Quote a libpq connection string value, escaping backslashes and single quotes
     fn quote_conn_value(value: &str) -> String {
-        if value.contains(|c: char| c == '\'' || c == '\\' || c == ' ' || c == '=') {
+        if value.contains(['\'', '\\', ' ', '=']) {
             format!("'{}'", value.replace('\\', "\\\\").replace('\'', "\\'"))
         } else {
             value.to_string()
@@ -85,9 +77,7 @@ impl PostgresTarget {
 
     /// Quote PostgreSQL identifier to prevent SQL injection
     pub fn quote_identifier(identifier: &str) -> String {
-        // PostgreSQL identifiers are case-insensitive unless quoted
-        // We'll quote them to be safe and preserve case
-        format!("\"{}\"", identifier.replace("\"", "\"\""))
+        format!("\"{}\"", identifier.replace('"', "\"\""))
     }
 }
 
@@ -96,10 +86,8 @@ impl Target for PostgresTarget {
     async fn update_password(&self, username: &str, new_password: &str) -> Result<()> {
         info!("Updating password for PostgreSQL user: {}", username);
 
-        // Escape single quotes in password
-        let escaped_password = new_password.replace("'", "''");
+        let escaped_password = new_password.replace('\'', "''");
 
-        // Use ALTER USER to change password
         let query = format!(
             "ALTER USER {} WITH PASSWORD '{}'",
             Self::quote_identifier(username),
@@ -135,19 +123,12 @@ impl Target for PostgresTarget {
             &self.config.ssl_mode,
         );
 
-        // Try to connect with new credentials
-        let (test_client, test_connection) = tokio_postgres::connect(&connection_string, NoTls)
-            .await
-            .context("Failed to verify new password - connection failed")?;
+        let test_client = pg_connect(&connection_string, &self.config.ssl_mode).await?;
 
-        // Test with a simple query
         test_client
             .query_one("SELECT 1", &[])
             .await
             .context("Failed to verify new password - query failed")?;
-
-        // Close the test connection by dropping it
-        drop(test_connection);
 
         info!("Successfully verified new password for user: {}", username);
         Ok(())
@@ -156,4 +137,45 @@ impl Target for PostgresTarget {
     fn target_type(&self) -> &'static str {
         "postgres"
     }
+}
+
+/// Connect to PostgreSQL using the TLS mode from config.
+///
+/// ssl_mode mapping:
+///   disable                      → NoTls (no encryption)
+///   require                      → TLS required, cert/hostname verification skipped
+///   prefer / allow / verify-ca / verify-full (default) → TLS with full cert verification
+async fn pg_connect(connection_string: &str, ssl_mode: &str) -> Result<Client> {
+    if matches!(parse_ssl_mode(ssl_mode), TlsMode::Disabled) {
+        let (client, conn) = tokio_postgres::connect(connection_string, tokio_postgres::NoTls)
+            .await
+            .context("Failed to connect to PostgreSQL (NoTls)")?;
+        tokio::spawn(async move {
+            if let Err(e) = conn.await {
+                eprintln!("PostgreSQL connection error: {e}");
+            }
+        });
+        return Ok(client);
+    }
+
+    let mut builder = native_tls::TlsConnector::builder();
+    if matches!(parse_ssl_mode(ssl_mode), TlsMode::RequireNoVerify) {
+        builder.danger_accept_invalid_certs(true);
+        builder.danger_accept_invalid_hostnames(true);
+    }
+
+    let connector = builder
+        .build()
+        .context("Failed to build TLS connector for PostgreSQL")?;
+    let tls = postgres_native_tls::MakeTlsConnector::new(connector);
+
+    let (client, conn) = tokio_postgres::connect(connection_string, tls)
+        .await
+        .context("Failed to connect to PostgreSQL (TLS)")?;
+    tokio::spawn(async move {
+        if let Err(e) = conn.await {
+            eprintln!("PostgreSQL connection error: {e}");
+        }
+    });
+    Ok(client)
 }

@@ -2,12 +2,15 @@
 //!
 //! This is the main entry point for the CLI application.
 
+mod audit;
 mod backends;
 mod cli;
 mod config;
 mod env_updater;
+mod notification;
 mod rotation;
 mod targets;
+mod util;
 
 // Re-export for library usage
 pub use config::Config;
