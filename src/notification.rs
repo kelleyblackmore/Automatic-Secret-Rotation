@@ -17,10 +17,7 @@ impl NotificationClient {
             webhook_url: config.webhook_url.clone(),
             auth_header: config.auth_header.clone(),
             events: config.events.clone(),
-            client: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(10))
-                .build()
-                .unwrap_or_default(),
+            client: crate::util::http::build_http_client(10).unwrap_or_default(),
         }
     }
 

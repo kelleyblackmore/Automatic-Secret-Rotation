@@ -1,4 +1,6 @@
 #[cfg(feature = "mysql")]
+use crate::util::tls::{parse_ssl_mode, TlsMode};
+#[cfg(feature = "mysql")]
 use anyhow::{Context, Result};
 #[cfg(feature = "mysql")]
 use async_trait::async_trait;
@@ -138,18 +140,14 @@ fn build_opts(
     password: &str,
     ssl_mode: Option<&str>,
 ) -> Result<Opts> {
-    let ssl_opts: Option<SslOpts> = match ssl_mode {
-        None | Some("disable") => None,
-        Some("require") => {
-            // TLS required but certificate is not verified.
-            Some(
-                SslOpts::default()
-                    .with_danger_accept_invalid_certs(true)
-                    .with_danger_skip_domain_validation(true),
-            )
-        }
-        // prefer / verify-ca / verify-full → TLS with full verification (default SslOpts)
-        Some(_) => Some(SslOpts::default()),
+    let ssl_opts: Option<SslOpts> = match ssl_mode.map(parse_ssl_mode) {
+        None | Some(TlsMode::Disabled) => None,
+        Some(TlsMode::RequireNoVerify) => Some(
+            SslOpts::default()
+                .with_danger_accept_invalid_certs(true)
+                .with_danger_skip_domain_validation(true),
+        ),
+        Some(TlsMode::VerifyFull) => Some(SslOpts::default()),
     };
 
     let opts = OptsBuilder::default()

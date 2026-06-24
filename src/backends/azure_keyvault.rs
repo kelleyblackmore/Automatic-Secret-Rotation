@@ -48,10 +48,7 @@ impl AzureKeyVaultBackend {
     pub async fn new(config: &AzureConfig) -> Result<Self> {
         Ok(Self {
             vault_url: config.vault_url.trim_end_matches('/').to_string(),
-            client: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(30))
-                .build()
-                .context("Failed to build HTTP client")?,
+            client: crate::util::http::build_http_client(30)?,
         })
     }
 
@@ -87,11 +84,11 @@ impl AzureKeyVaultBackend {
     }
 
     fn path_to_name(path: &str) -> String {
-        path.replace('/', "-")
+        crate::util::path::path_to_k8s_name(path)
     }
 
     fn name_to_path(name: &str) -> String {
-        name.replace('-', "/")
+        crate::util::path::k8s_name_to_path(name)
     }
 
     async fn get_secret_bundle(&self, name: &str) -> Result<KvSecretBundle> {
@@ -108,13 +105,9 @@ impl AzureKeyVaultBackend {
             .await
             .with_context(|| format!("Failed to GET secret: {}", name))?;
 
-        let status = resp.status();
-        if !status.is_success() {
-            let body = resp.text().await.unwrap_or_default();
-            anyhow::bail!("Azure Key Vault GET {} → {}: {}", name, status, body);
-        }
-
-        resp.json::<KvSecretBundle>()
+        crate::util::http::require_success(resp, &format!("Azure Key Vault GET {}", name))
+            .await?
+            .json::<KvSecretBundle>()
             .await
             .context("Failed to parse Azure Key Vault response")
     }
@@ -168,11 +161,7 @@ impl SecretBackend for AzureKeyVaultBackend {
             .await
             .with_context(|| format!("Failed to PUT secret: {}", path))?;
 
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            anyhow::bail!("Azure Key Vault PUT {} → {}: {}", path, status, text);
-        }
+        crate::util::http::require_success(resp, &format!("Azure Key Vault PUT {}", path)).await?;
 
         Ok(())
     }
@@ -201,11 +190,8 @@ impl SecretBackend for AzureKeyVaultBackend {
             .await
             .with_context(|| format!("Failed to PATCH secret metadata: {}", path))?;
 
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            anyhow::bail!("Azure Key Vault PATCH {} → {}: {}", path, status, text);
-        }
+        crate::util::http::require_success(resp, &format!("Azure Key Vault PATCH {}", path))
+            .await?;
 
         Ok(())
     }
@@ -248,13 +234,12 @@ impl SecretBackend for AzureKeyVaultBackend {
                 .await
                 .context("Failed to list Azure Key Vault secrets")?;
 
-            if !resp.status().is_success() {
-                let status = resp.status();
-                let text = resp.text().await.unwrap_or_default();
-                anyhow::bail!("Azure Key Vault LIST → {}: {}", status, text);
-            }
-
-            let list: KvSecretList = resp.json().await.context("Failed to parse secret list")?;
+            let list: KvSecretList =
+                crate::util::http::require_success(resp, "Azure Key Vault LIST")
+                    .await?
+                    .json()
+                    .await
+                    .context("Failed to parse secret list")?;
 
             for item in list.value {
                 // id is like https://vault.vault.azure.net/secrets/my-secret

@@ -597,6 +597,33 @@ pub async fn execute(cli: Cli) -> Result<()> {
 // Target construction helpers
 // ---------------------------------------------------------------------------
 
+async fn resolve_password(
+    backend: &dyn crate::backends::SecretBackend,
+    password_path: Option<&str>,
+    password: Option<&str>,
+    kind: &str,
+) -> Result<String> {
+    if let Some(path) = password_path {
+        let secret = backend
+            .read_secret(path)
+            .await
+            .context("Failed to read admin password from backend")?;
+        secret
+            .data
+            .values()
+            .next()
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("No password found in secret at {}", path))
+    } else if let Some(pw) = password {
+        Ok(pw.to_string())
+    } else {
+        anyhow::bail!(
+            "{} target requires password_path or password in config",
+            kind
+        )
+    }
+}
+
 /// Build the full list of targets from config (supports both old and new forms).
 async fn create_targets(
     config: &Config,
@@ -647,22 +674,13 @@ async fn create_postgres_target(
     config: &crate::config::PostgresTargetConfig,
     backend: &dyn crate::backends::SecretBackend,
 ) -> Result<TargetInstance> {
-    let admin_password = if let Some(ref path) = config.password_path {
-        let secret = backend
-            .read_secret(path)
-            .await
-            .context("Failed to read admin password from backend")?;
-        secret
-            .data
-            .values()
-            .next()
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("No password found in secret at {}", path))?
-    } else if let Some(ref pw) = config.password {
-        pw.clone()
-    } else {
-        anyhow::bail!("PostgreSQL target requires password_path or password in config");
-    };
+    let admin_password = resolve_password(
+        backend,
+        config.password_path.as_deref(),
+        config.password.as_deref(),
+        "PostgreSQL",
+    )
+    .await?;
 
     let target = crate::targets::PostgresTarget::new(config, &admin_password)
         .await
@@ -682,22 +700,13 @@ async fn create_mysql_target(
     config: &crate::config::MysqlTargetConfig,
     backend: &dyn crate::backends::SecretBackend,
 ) -> Result<TargetInstance> {
-    let admin_password = if let Some(ref path) = config.password_path {
-        let secret = backend
-            .read_secret(path)
-            .await
-            .context("Failed to read admin password from backend")?;
-        secret
-            .data
-            .values()
-            .next()
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("No password found in secret at {}", path))?
-    } else if let Some(ref pw) = config.password {
-        pw.clone()
-    } else {
-        anyhow::bail!("MySQL target requires password_path or password in config");
-    };
+    let admin_password = resolve_password(
+        backend,
+        config.password_path.as_deref(),
+        config.password.as_deref(),
+        "MySQL",
+    )
+    .await?;
 
     let target = crate::targets::MysqlTarget::new(config, &admin_password)
         .await

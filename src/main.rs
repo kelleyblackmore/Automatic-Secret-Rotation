@@ -10,6 +10,7 @@ mod env_updater;
 mod notification;
 mod rotation;
 mod targets;
+mod util;
 
 // Re-export for library usage
 pub use config::Config;

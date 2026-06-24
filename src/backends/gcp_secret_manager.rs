@@ -61,10 +61,7 @@ impl GcpSecretManagerBackend {
 
         Ok(Self {
             project_id: config.project_id.clone(),
-            client: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(30))
-                .build()
-                .context("Failed to build HTTP client")?,
+            client: crate::util::http::build_http_client(30)?,
         })
     }
 
@@ -90,17 +87,18 @@ impl GcpSecretManagerBackend {
     }
 
     fn secret_resource_name(&self, path: &str) -> String {
-        let name = path.replace('/', "-");
+        let name = crate::util::path::path_to_k8s_name(path);
         format!("projects/{}/secrets/{}", self.project_id, name)
     }
 
     fn path_from_resource_name(name: &str) -> String {
         // "projects/proj/secrets/my-secret" → "my/secret"
-        name.rsplit('/').next().unwrap_or(name).replace('-', "/")
+        let seg = name.rsplit('/').next().unwrap_or(name);
+        crate::util::path::k8s_name_to_path(seg)
     }
 
     async fn ensure_secret_exists(&self, path: &str, token: &str) -> Result<()> {
-        let secret_id = path.replace('/', "-");
+        let secret_id = crate::util::path::path_to_k8s_name(path);
         let url = format!(
             "{}/projects/{}/secrets?secretId={}",
             API_BASE, self.project_id, secret_id
@@ -143,13 +141,13 @@ impl SecretBackend for GcpSecretManagerBackend {
             .await
             .with_context(|| format!("Failed to read GCP secret: {}", path))?;
 
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            anyhow::bail!("GCP Secret Manager read {} → {}: {}", path, status, text);
-        }
+        let version: SecretVersion =
+            crate::util::http::require_success(resp, &format!("GCP Secret Manager read {}", path))
+                .await?
+                .json()
+                .await
+                .context("Failed to parse GCP secret")?;
 
-        let version: SecretVersion = resp.json().await.context("Failed to parse GCP secret")?;
         let encoded = version.payload.map(|p| p.data).unwrap_or_default();
         let bytes = base64_decode(&encoded).context("Failed to decode GCP secret payload")?;
         let value = String::from_utf8(bytes).context("GCP secret is not valid UTF-8")?;
@@ -188,11 +186,8 @@ impl SecretBackend for GcpSecretManagerBackend {
             .await
             .with_context(|| format!("Failed to write GCP secret: {}", path))?;
 
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            anyhow::bail!("GCP Secret Manager write {} → {}: {}", path, status, text);
-        }
+        crate::util::http::require_success(resp, &format!("GCP Secret Manager write {}", path))
+            .await?;
 
         Ok(())
     }
@@ -223,16 +218,11 @@ impl SecretBackend for GcpSecretManagerBackend {
             .await
             .with_context(|| format!("Failed to update GCP secret metadata: {}", path))?;
 
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            anyhow::bail!(
-                "GCP Secret Manager metadata update {} → {}: {}",
-                path,
-                status,
-                text
-            );
-        }
+        crate::util::http::require_success(
+            resp,
+            &format!("GCP Secret Manager metadata update {}", path),
+        )
+        .await?;
 
         Ok(())
     }
@@ -250,18 +240,14 @@ impl SecretBackend for GcpSecretManagerBackend {
             .await
             .with_context(|| format!("Failed to read GCP secret metadata: {}", path))?;
 
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            anyhow::bail!(
-                "GCP Secret Manager metadata read {} → {}: {}",
-                path,
-                status,
-                text
-            );
-        }
-
-        let secret: SecretResource = resp.json().await.context("Failed to parse GCP secret")?;
+        let secret: SecretResource = crate::util::http::require_success(
+            resp,
+            &format!("GCP Secret Manager metadata read {}", path),
+        )
+        .await?
+        .json()
+        .await
+        .context("Failed to parse GCP secret")?;
 
         let metadata: HashMap<String, String> = secret
             .labels
@@ -281,7 +267,7 @@ impl SecretBackend for GcpSecretManagerBackend {
         let prefix = if path.is_empty() {
             String::new()
         } else {
-            path.replace('/', "-")
+            crate::util::path::path_to_k8s_name(path)
         };
 
         let mut all = Vec::new();
@@ -308,14 +294,12 @@ impl SecretBackend for GcpSecretManagerBackend {
                 .await
                 .context("Failed to list GCP secrets")?;
 
-            if !resp.status().is_success() {
-                let status = resp.status();
-                let text = resp.text().await.unwrap_or_default();
-                anyhow::bail!("GCP Secret Manager list → {}: {}", status, text);
-            }
-
             let list: ListSecretsResponse =
-                resp.json().await.context("Failed to parse secret list")?;
+                crate::util::http::require_success(resp, "GCP Secret Manager list")
+                    .await?
+                    .json()
+                    .await
+                    .context("Failed to parse secret list")?;
 
             for secret in list.secrets.unwrap_or_default() {
                 all.push(Self::path_from_resource_name(&secret.name));

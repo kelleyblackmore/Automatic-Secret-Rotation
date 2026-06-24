@@ -53,12 +53,12 @@ impl OcpBackend {
 
     /// Convert ASR path to Kubernetes secret name (/ → -)
     fn path_to_name(path: &str) -> String {
-        path.replace('/', "-")
+        crate::util::path::path_to_k8s_name(path)
     }
 
     /// Convert Kubernetes secret name to ASR path
     fn name_to_path(name: &str) -> String {
-        name.replace('-', "/")
+        crate::util::path::k8s_name_to_path(name)
     }
 
     fn annotation_key(meta_key: &str) -> String {

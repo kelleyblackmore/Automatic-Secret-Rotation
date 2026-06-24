@@ -40,9 +40,7 @@ pub struct VaultWriteRequest {
 impl VaultClient {
     /// Create a new Vault client
     pub fn new(address: String, token: String) -> Result<Self> {
-        let client = Client::builder()
-            .build()
-            .context("Failed to create HTTP client")?;
+        let client = crate::util::http::build_http_client(30)?;
 
         Ok(Self {
             client,
@@ -64,16 +62,12 @@ impl VaultClient {
             .await
             .context("Failed to read secret from Vault")?;
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            anyhow::bail!("Vault request failed with status {}: {}", status, body);
-        }
-
-        let vault_response: VaultResponse<VaultSecretData> = response
-            .json()
-            .await
-            .context("Failed to parse Vault response")?;
+        let vault_response: VaultResponse<VaultSecretData> =
+            crate::util::http::require_success(response, "Vault read secret")
+                .await?
+                .json()
+                .await
+                .context("Failed to parse Vault response")?;
 
         Ok(vault_response.data)
     }
@@ -102,11 +96,7 @@ impl VaultClient {
             .await
             .context("Failed to write secret to Vault")?;
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            anyhow::bail!("Vault write failed with status {}: {}", status, body);
-        }
+        crate::util::http::require_success(response, "Vault write secret").await?;
 
         info!("Successfully wrote secret to {}/{}", mount, path);
         Ok(())
@@ -134,11 +124,7 @@ impl VaultClient {
             .await
             .context("Failed to update metadata")?;
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            anyhow::bail!("Metadata update failed with status {}: {}", status, body);
-        }
+        crate::util::http::require_success(response, "Vault update metadata").await?;
 
         info!("Successfully updated metadata for {}/{}", mount, path);
         Ok(())
@@ -157,20 +143,12 @@ impl VaultClient {
             .await
             .context("Failed to read metadata from Vault")?;
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            anyhow::bail!(
-                "Vault metadata request failed with status {}: {}",
-                status,
-                body
-            );
-        }
-
-        let vault_response: VaultResponse<SecretMetadata> = response
-            .json()
-            .await
-            .context("Failed to parse Vault metadata response")?;
+        let vault_response: VaultResponse<SecretMetadata> =
+            crate::util::http::require_success(response, "Vault read metadata")
+                .await?
+                .json()
+                .await
+                .context("Failed to parse Vault metadata response")?;
 
         Ok(vault_response.data)
     }
@@ -194,21 +172,17 @@ impl VaultClient {
             return Ok(vec![]);
         }
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            anyhow::bail!("Vault list request failed with status {}: {}", status, body);
-        }
-
         #[derive(Deserialize)]
         struct ListData {
             keys: Vec<String>,
         }
 
-        let vault_response: VaultResponse<ListData> = response
-            .json()
-            .await
-            .context("Failed to parse Vault list response")?;
+        let vault_response: VaultResponse<ListData> =
+            crate::util::http::require_success(response, "Vault list secrets")
+                .await?
+                .json()
+                .await
+                .context("Failed to parse Vault list response")?;
 
         Ok(vault_response.data.keys)
     }

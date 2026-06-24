@@ -1,3 +1,4 @@
+use crate::util::tls::{parse_ssl_mode, TlsMode};
 use anyhow::{Context, Result};
 use std::sync::Arc;
 use tokio_postgres::Client;
@@ -145,7 +146,7 @@ impl Target for PostgresTarget {
 ///   require                      → TLS required, cert/hostname verification skipped
 ///   prefer / allow / verify-ca / verify-full (default) → TLS with full cert verification
 async fn pg_connect(connection_string: &str, ssl_mode: &str) -> Result<Client> {
-    if ssl_mode == "disable" {
+    if matches!(parse_ssl_mode(ssl_mode), TlsMode::Disabled) {
         let (client, conn) = tokio_postgres::connect(connection_string, tokio_postgres::NoTls)
             .await
             .context("Failed to connect to PostgreSQL (NoTls)")?;
@@ -157,14 +158,11 @@ async fn pg_connect(connection_string: &str, ssl_mode: &str) -> Result<Client> {
         return Ok(client);
     }
 
-    // Build native-TLS connector.
     let mut builder = native_tls::TlsConnector::builder();
-    if ssl_mode == "require" {
-        // "require" = enforce TLS but don't verify the certificate.
+    if matches!(parse_ssl_mode(ssl_mode), TlsMode::RequireNoVerify) {
         builder.danger_accept_invalid_certs(true);
         builder.danger_accept_invalid_hostnames(true);
     }
-    // verify-ca / verify-full / prefer / allow → full verification (native-tls default).
 
     let connector = builder
         .build()

@@ -9,6 +9,7 @@ pub mod env_updater;
 pub mod notification;
 pub mod rotation;
 pub mod targets;
+pub mod util;
 
 pub use backends::Backend;
 pub use config::Config;
