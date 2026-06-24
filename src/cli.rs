@@ -164,7 +164,8 @@ pub async fn execute(cli: Cli) -> Result<()> {
     }
     if let Some(token) = cli.vault_token {
         if let Some(ref mut v) = config.vault {
-            v.token = token;
+            v.token = Some(token);
+            v.auth_method = "token".to_string();
         }
     }
     if let Some(mount) = cli.vault_mount {
@@ -833,18 +834,14 @@ async fn create_backend(config: &Config) -> Result<Backend> {
         "vault" => {
             let vault_config = config.vault.as_ref().ok_or_else(|| {
                 anyhow::anyhow!(
-                    "Vault config not found. Set VAULT_ADDR/VAULT_TOKEN or add [vault] section."
+                    "Vault config not found. Set VAULT_ADDR and VAULT_TOKEN (or configure \
+                     a dynamic auth_method) or add a [vault] section to your config file."
                 )
             })?;
-            let vault_client = crate::backends::VaultClient::new(
-                vault_config.address.clone(),
-                vault_config.token.clone(),
-            )
-            .context("Failed to create Vault client")?;
-            Ok(Box::new(crate::backends::VaultBackend::new(
-                vault_client,
-                vault_config.mount.clone(),
-            )))
+            let backend = crate::backends::VaultBackend::from_config(vault_config)
+                .await
+                .context("Failed to authenticate to Vault")?;
+            Ok(Box::new(backend))
         }
 
         "aws" => {

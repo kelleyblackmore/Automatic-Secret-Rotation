@@ -54,8 +54,74 @@ pub struct Config {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VaultConfig {
     pub address: String,
-    pub token: String,
+    /// Token for `token` auth. Falls back to VAULT_TOKEN env var. Not required for other methods.
+    #[serde(default)]
+    pub token: Option<String>,
+    /// KV secrets engine mount path (default: "secret").
     #[serde(default = "default_mount")]
+    pub mount: String,
+    /// Auth method: "token" (default), "approle", "kubernetes", "aws_iam", "jwt".
+    #[serde(default = "default_vault_auth_method")]
+    pub auth_method: String,
+    #[serde(default)]
+    pub approle: Option<VaultAppRoleConfig>,
+    #[serde(default)]
+    pub kubernetes: Option<VaultKubernetesConfig>,
+    #[serde(default)]
+    pub aws_iam: Option<VaultAwsIamConfig>,
+    #[serde(default)]
+    pub jwt: Option<VaultJwtConfig>,
+}
+
+/// AppRole auth — non-sensitive `role_id` in config; short-lived `secret_id` injected at runtime.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VaultAppRoleConfig {
+    pub role_id: String,
+    /// secret_id value (avoid; prefer secret_id_env or wrapped secret injection).
+    #[serde(default)]
+    pub secret_id: Option<String>,
+    /// Env var that holds the secret_id at runtime (e.g. "VAULT_SECRET_ID").
+    #[serde(default)]
+    pub secret_id_env: Option<String>,
+    /// AppRole auth mount path (default: "approle").
+    #[serde(default = "default_approle_mount")]
+    pub mount: String,
+}
+
+/// Kubernetes auth — exchanges the mounted ServiceAccount JWT for a Vault token.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VaultKubernetesConfig {
+    pub role: String,
+    /// Path to the ServiceAccount JWT (default: the standard K8s projected path).
+    #[serde(default = "default_sa_token_path")]
+    pub sa_token_path: String,
+    /// Kubernetes auth mount path (default: "kubernetes").
+    #[serde(default = "default_k8s_auth_mount")]
+    pub mount: String,
+}
+
+/// AWS IAM auth — SigV4-signed STS GetCallerIdentity proves identity without any pre-placed secret.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VaultAwsIamConfig {
+    pub role: String,
+    /// Optional `X-Vault-AWS-IAM-Server-ID` header value (defence-in-depth; must match Vault config).
+    #[serde(default)]
+    pub header_value: Option<String>,
+    /// AWS auth mount path (default: "aws").
+    #[serde(default = "default_aws_auth_mount")]
+    pub mount: String,
+}
+
+/// JWT/OIDC auth — exchanges a GitHub Actions or GitLab CI OIDC token for a Vault token.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VaultJwtConfig {
+    pub role: String,
+    /// Env var that holds the JWT. Auto-detected if unset (CI_JOB_JWT_V2, CI_JOB_JWT,
+    /// VAULT_JWT_TOKEN, or GitHub Actions OIDC via ACTIONS_ID_TOKEN_REQUEST_URL).
+    #[serde(default)]
+    pub token_env: Option<String>,
+    /// JWT/OIDC auth mount path (default: "jwt").
+    #[serde(default = "default_jwt_auth_mount")]
     pub mount: String,
 }
 
@@ -363,6 +429,30 @@ fn default_mount() -> String {
     "secret".to_string()
 }
 
+fn default_vault_auth_method() -> String {
+    "token".to_string()
+}
+
+fn default_approle_mount() -> String {
+    "approle".to_string()
+}
+
+fn default_sa_token_path() -> String {
+    "/var/run/secrets/kubernetes.io/serviceaccount/token".to_string()
+}
+
+fn default_k8s_auth_mount() -> String {
+    "kubernetes".to_string()
+}
+
+fn default_aws_auth_mount() -> String {
+    "aws".to_string()
+}
+
+fn default_jwt_auth_mount() -> String {
+    "jwt".to_string()
+}
+
 fn default_aws_region() -> String {
     "us-east-1".to_string()
 }
@@ -395,9 +485,14 @@ impl Config {
             Some(VaultConfig {
                 address: std::env::var("VAULT_ADDR")
                     .context("VAULT_ADDR environment variable not set")?,
-                token: std::env::var("VAULT_TOKEN")
-                    .context("VAULT_TOKEN environment variable not set")?,
+                token: std::env::var("VAULT_TOKEN").ok(),
                 mount: std::env::var("VAULT_MOUNT").unwrap_or_else(|_| "secret".to_string()),
+                auth_method: std::env::var("VAULT_AUTH_METHOD")
+                    .unwrap_or_else(|_| "token".to_string()),
+                approle: None,
+                kubernetes: None,
+                aws_iam: None,
+                jwt: None,
             })
         } else {
             None
@@ -514,8 +609,33 @@ backend = "vault"
 
 [vault]
 address = "http://127.0.0.1:8200"
-token = "your-vault-token-here"
+# auth_method = "token"   # Options: token (default), approle, kubernetes, aws_iam, jwt
+token = "your-vault-token-here"   # Only used when auth_method = "token"
 mount = "secret"
+
+# AppRole auth (role_id is non-sensitive; secret_id is injected at runtime):
+# [vault.approle]
+# role_id = "non-secret-role-id"
+# secret_id_env = "VAULT_SECRET_ID"   # env var holding the short-lived secret_id
+# # mount = "approle"
+
+# Kubernetes auth (exchange mounted ServiceAccount JWT for a Vault token):
+# [vault.kubernetes]
+# role = "my-asr-role"
+# # sa_token_path = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+# # mount = "kubernetes"
+
+# AWS IAM auth (zero secrets — uses EC2 instance profile / EKS IRSA):
+# [vault.aws_iam]
+# role = "my-vault-role"
+# # header_value = "vault.example.com"   # X-Vault-AWS-IAM-Server-ID (optional)
+# # mount = "aws"
+
+# JWT/OIDC auth (GitHub Actions, GitLab CI — auto-detected from standard env vars):
+# [vault.jwt]
+# role = "my-vault-role"
+# # token_env = "CI_JOB_JWT"   # explicit env var; auto-detected if unset
+# # mount = "jwt"
 
 # [aws]
 # region = "us-east-1"
