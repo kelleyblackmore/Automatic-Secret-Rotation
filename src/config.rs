@@ -328,6 +328,10 @@ pub struct GitHubTargetConfig {
     /// GitHub Environment name to scope the secret/variable (optional)
     #[serde(default)]
     pub env_name: Option<String>,
+    /// Override the GitHub API base URL (default: https://api.github.com).
+    /// Intended for testing against a mock server; not needed in production.
+    #[serde(default)]
+    pub api_url: Option<String>,
 }
 
 // ---------------------------------------------------------------------------

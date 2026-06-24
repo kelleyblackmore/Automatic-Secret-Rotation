@@ -233,8 +233,10 @@ impl SecretBackend for FileBackend {
                 }
 
                 if file_path.is_file() {
-                    // Get relative path from base_dir, normalizing to forward slashes
-                    if let Ok(relative) = file_path.strip_prefix(&self.base_dir) {
+                    // Strip dir_path (not base_dir) so callers receive names relative to the
+                    // queried prefix — matches Vault's LIST behaviour and prevents scan_for_rotation
+                    // from double-prefixing paths when called with a non-empty root.
+                    if let Ok(relative) = file_path.strip_prefix(&dir_path) {
                         let secret_path = relative
                             .to_string_lossy()
                             .replace(std::path::MAIN_SEPARATOR, "/");
@@ -242,18 +244,17 @@ impl SecretBackend for FileBackend {
                     }
                 } else if file_path.is_dir() {
                     // Recursively list secrets in subdirectories
+                    let sub_name = file_path.file_name().unwrap().to_string_lossy().to_string();
                     let sub_path = if path.is_empty() {
-                        file_path.file_name().unwrap().to_string_lossy().to_string()
+                        sub_name.clone()
                     } else {
-                        format!(
-                            "{}/{}",
-                            path,
-                            file_path.file_name().unwrap().to_string_lossy()
-                        )
+                        format!("{}/{}", path, sub_name)
                     };
 
                     let sub_secrets = self.list_secrets(&sub_path).await?;
-                    secrets.extend(sub_secrets);
+                    for s in sub_secrets {
+                        secrets.push(format!("{}/{}", sub_name, s));
+                    }
                 }
             }
         } else {

@@ -11,6 +11,7 @@ const GITHUB_API: &str = "https://api.github.com";
 const API_VERSION: &str = "2022-11-28";
 
 pub struct GitHubTarget {
+    api_base: String,
     owner: String,
     repo: String,
     secret_name: Option<String>,
@@ -45,6 +46,12 @@ impl GitHubTarget {
             .context("GitHub token not set — provide token in config or set GITHUB_TOKEN")?;
 
         Ok(Self {
+            api_base: config
+                .api_url
+                .as_deref()
+                .unwrap_or(GITHUB_API)
+                .trim_end_matches('/')
+                .to_string(),
             owner: config.owner.clone(),
             repo: config.repo.clone(),
             secret_name: config.secret_name.clone(),
@@ -75,11 +82,11 @@ impl GitHubTarget {
         let pk_url = match &self.env_name {
             Some(env) => format!(
                 "{}/repos/{}/{}/environments/{}/secrets/public-key",
-                GITHUB_API, self.owner, self.repo, env
+                self.api_base, self.owner, self.repo, env
             ),
             None => format!(
                 "{}/repos/{}/{}/actions/secrets/public-key",
-                GITHUB_API, self.owner, self.repo
+                self.api_base, self.owner, self.repo
             ),
         };
 
@@ -104,11 +111,11 @@ impl GitHubTarget {
         let secret_url = match &self.env_name {
             Some(env) => format!(
                 "{}/repos/{}/{}/environments/{}/secrets/{}",
-                GITHUB_API, self.owner, self.repo, env, name
+                self.api_base, self.owner, self.repo, env, name
             ),
             None => format!(
                 "{}/repos/{}/{}/actions/secrets/{}",
-                GITHUB_API, self.owner, self.repo, name
+                self.api_base, self.owner, self.repo, name
             ),
         };
 
@@ -141,21 +148,21 @@ impl GitHubTarget {
             Some(env) => (
                 format!(
                     "{}/repos/{}/{}/environments/{}/variables",
-                    GITHUB_API, self.owner, self.repo, env
+                    self.api_base, self.owner, self.repo, env
                 ),
                 format!(
                     "{}/repos/{}/{}/environments/{}/variables/{}",
-                    GITHUB_API, self.owner, self.repo, env, name
+                    self.api_base, self.owner, self.repo, env, name
                 ),
             ),
             None => (
                 format!(
                     "{}/repos/{}/{}/actions/variables",
-                    GITHUB_API, self.owner, self.repo
+                    self.api_base, self.owner, self.repo
                 ),
                 format!(
                     "{}/repos/{}/{}/actions/variables/{}",
-                    GITHUB_API, self.owner, self.repo, name
+                    self.api_base, self.owner, self.repo, name
                 ),
             ),
         };
@@ -209,7 +216,7 @@ impl Target for GitHubTarget {
         _password: &str,
         _extra: Option<&str>,
     ) -> Result<()> {
-        let url = format!("{}/repos/{}/{}", GITHUB_API, self.owner, self.repo);
+        let url = format!("{}/repos/{}/{}", self.api_base, self.owner, self.repo);
         let resp = self
             .gh_request(reqwest::Method::GET, &url)
             .send()
