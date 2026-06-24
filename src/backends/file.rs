@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 use super::secret_backend::{SecretBackend, SecretData};
 
@@ -107,7 +107,7 @@ impl FileBackend {
         }
 
         #[cfg(windows)]
-        warn!(
+        tracing::warn!(
             "File {:?} was written but Windows ACLs were not set — \
              protect it with folder-level permissions manually.",
             path
