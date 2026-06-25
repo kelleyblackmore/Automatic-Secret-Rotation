@@ -68,9 +68,10 @@ jobs:
         if: matrix.use_cross != true && matrix.use_cmake != true
         run: cargo build --release --target ${{ matrix.target }} --locked
 
-      - name: Build release binary (Windows — CMake builder avoids MSVC C11 flag issue)
+      - name: Build release binary (Windows — CFLAGS and CMake to satisfy aws-lc-sys C11 requirement)
         if: matrix.use_cmake == true
         env:
+          CFLAGS: /std:c11
           AWS_LC_SYS_CMAKE_BUILDER: "1"
         run: cargo build --release --target ${{ matrix.target }} --locked
 
