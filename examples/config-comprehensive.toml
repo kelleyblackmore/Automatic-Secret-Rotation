@@ -1,0 +1,355 @@
+# =============================================================================
+# Automatic Secret Rotation — Comprehensive Configuration Reference
+# =============================================================================
+# This file documents every available option across all backends and targets.
+# It is intentionally verbose; a real deployment only needs the sections
+# relevant to your environment.
+#
+# Quick-start:
+#   asr init            # generates a minimal config interactively
+#   asr validate        # checks this file for errors
+#   asr scan            # shows secrets overdue for rotation
+#   asr rotate <path>   # rotates a single secret in the backend
+# =============================================================================
+
+# Which secret store to use as the source of truth.
+# Options: vault | aws | azure | gcp | ocp | file
+backend = "vault"
+
+# =============================================================================
+# Backend: HashiCorp Vault (KV v2)
+# =============================================================================
+[vault]
+address = "https://vault.example.com:8200"
+
+# KV v2 mount (default: "secret").  Change if your org uses a different mount
+# such as "kv", "infra", "app-secrets", etc.
+mount = "secret"
+
+# --- Auth method (choose ONE; all others can be left commented out) ----------
+
+# Option 1 — Static token (dev / break-glass only; not recommended for prod)
+auth_method = "token"
+# token = "hvs.CAESI..."              # or set VAULT_TOKEN env var
+
+# Option 2 — AppRole (CI pipelines, automated agents)
+# auth_method = "approle"
+# [vault.approle]
+# role_id      = "6cf1dbf4-7c14-4b3a-bc2e-1a3b5e6f7a8b"  # non-secret; commit it
+# secret_id_env = "VAULT_SECRET_ID"  # injected by your CI/CD at runtime
+# mount        = "approle"           # default; omit if unchanged
+
+# Option 3 — Kubernetes / OpenShift (pods with a mounted ServiceAccount token)
+# auth_method = "kubernetes"
+# [vault.kubernetes]
+# role          = "asr-rotation-role"
+# sa_token_path = "/var/run/secrets/kubernetes.io/serviceaccount/token"  # default
+# mount         = "kubernetes"
+
+# Option 4 — AWS IAM (EC2 instance profile, EKS IRSA, Lambda — zero secrets)
+# auth_method = "aws_iam"
+# [vault.aws_iam]
+# role         = "asr-vault-role"
+# header_value = "vault.example.com"  # X-Vault-AWS-IAM-Server-ID (optional)
+# mount        = "aws"
+
+# Option 5 — JWT / OIDC (GitHub Actions, GitLab CI — token auto-detected)
+# auth_method = "jwt"
+# [vault.jwt]
+# role      = "github-actions-asr"
+# token_env = "ACTIONS_ID_TOKEN"     # explicit env var; auto-detected if unset
+# mount     = "jwt"
+
+# =============================================================================
+# Backend: AWS Secrets Manager (alternative to Vault)
+# =============================================================================
+# Activate with: backend = "aws"
+# AWS credentials come from the standard chain (env vars, ~/.aws, IAM role).
+#
+# [aws]
+# region = "us-east-1"
+
+# =============================================================================
+# Backend: Azure Key Vault (alternative to Vault)
+# =============================================================================
+# Activate with: backend = "azure"
+# Authenticates via DefaultAzureCredential (env vars → managed identity → CLI).
+#
+# [azure]
+# vault_url = "https://my-keyvault.vault.azure.net"
+# tenant_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"  # optional override
+
+# =============================================================================
+# Backend: GCP Secret Manager (alternative to Vault)
+# =============================================================================
+# Activate with: backend = "gcp"
+# Authenticates via Application Default Credentials.
+#
+# [gcp]
+# project_id       = "my-gcp-project-id"
+# credentials_file = "/etc/gcp/sa-key.json"  # omit to use ADC / Workload Identity
+
+# =============================================================================
+# Backend: OpenShift / Kubernetes Secrets (alternative to Vault)
+# =============================================================================
+# Activate with: backend = "ocp"
+# Requires --features ocp at build time.
+#
+# [ocp]
+# namespace  = "my-app-namespace"
+# kubeconfig = "/home/ci/.kube/config"   # omit for in-cluster auth
+# context    = "prod-cluster"            # omit to use active context
+
+# =============================================================================
+# Backend: Local file system (dev / offline / testing only)
+# =============================================================================
+# Activate with: backend = "file"
+#
+# [file]
+# directory = "~/.asr/secrets"   # default
+
+# =============================================================================
+# Global rotation settings
+# =============================================================================
+[rotation]
+# How many months between rotations (default: 6).
+# A secret is overdue once `last_rotated` is older than this.
+period_months = 3
+
+# Length of auto-generated secrets in characters (default: 32).
+# Use 64+ for high-value secrets; APIs may impose their own limits.
+secret_length = 48
+
+# =============================================================================
+# Targets — where rotated secrets get applied
+#
+# Use the [[targets]] array form to define multiple targets.
+# Each entry requires a `type` field; the available types are:
+#   postgres | mysql | api | gitlab | github
+#
+# Secrets in the backend are rotated first, then propagated to each target.
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# PostgreSQL — primary application database
+# ---------------------------------------------------------------------------
+[[targets]]
+type     = "postgres"
+host     = "postgres-primary.db.internal"
+port     = 5432
+database = "app_production"
+username = "app_user"
+# password_path: path in the secret backend where the current admin password
+# lives.  The rotator reads this to authenticate before changing the password.
+password_path = "infra/postgres/primary/admin-password"
+ssl_mode = "verify-full"
+
+# ---------------------------------------------------------------------------
+# PostgreSQL — read replica (same user, same password — rotated in sync)
+# ---------------------------------------------------------------------------
+[[targets]]
+type          = "postgres"
+host          = "postgres-replica.db.internal"
+port          = 5432
+database      = "app_production"
+username      = "app_user"
+password_path = "infra/postgres/primary/admin-password"
+ssl_mode      = "verify-full"
+
+# ---------------------------------------------------------------------------
+# PostgreSQL — analytics / reporting database (different credentials)
+# ---------------------------------------------------------------------------
+[[targets]]
+type          = "postgres"
+host          = "analytics.db.internal"
+port          = 5432
+database      = "analytics"
+username      = "etl_writer"
+password_path = "infra/postgres/analytics/etl-writer-password"
+ssl_mode      = "require"
+
+# ---------------------------------------------------------------------------
+# MySQL — legacy service database
+# ---------------------------------------------------------------------------
+[[targets]]
+type          = "mysql"
+host          = "mysql.db.internal"
+port          = 3306
+database      = "legacy_app"
+username      = "svc_account"
+password_path = "infra/mysql/legacy/svc-account-password"
+ssl_mode      = "required"
+
+# ---------------------------------------------------------------------------
+# API — internal user management service
+# Sends a POST /api/v1/users/{username}/password with the new password.
+# ---------------------------------------------------------------------------
+[[targets]]
+type             = "api"
+base_url         = "https://usermgmt.internal"
+endpoint         = "/api/v1/users/{username}/password"
+method           = "PUT"
+password_field   = "new_password"
+username_field   = "username"
+auth_header      = "Bearer ${API_ADMIN_TOKEN}"
+timeout_seconds  = 30
+
+[targets.additional_fields]
+confirm_password = "{password}"   # some APIs require confirmation
+
+# ---------------------------------------------------------------------------
+# API — Stripe restricted key rotation webhook
+# Stripe doesn't support password-style rotation; this calls an internal
+# proxy that rolls the key via the Stripe API and returns the new value.
+# ---------------------------------------------------------------------------
+[[targets]]
+type            = "api"
+base_url        = "https://secrets-proxy.internal"
+endpoint        = "/rotate/stripe"
+method          = "POST"
+password_field  = "new_key"
+auth_header     = "Bearer ${SECRETS_PROXY_TOKEN}"
+timeout_seconds = 60
+
+# ---------------------------------------------------------------------------
+# API — DataDog synthetic monitoring password update
+# ---------------------------------------------------------------------------
+[[targets]]
+type            = "api"
+base_url        = "https://api.datadoghq.com"
+endpoint        = "/api/v1/synthetics/settings/variables/{username}"
+method          = "PUT"
+password_field  = "value"
+auth_header     = "DD-API-KEY ${DD_API_KEY}"
+timeout_seconds = 30
+
+# ---------------------------------------------------------------------------
+# GitLab CI/CD — deploy token stored as a CI variable (requires: --features gitlab)
+# ---------------------------------------------------------------------------
+[[targets]]
+type         = "gitlab"
+project_id   = "myorg/backend-service"   # path or numeric ID; slashes are encoded
+variable_key = "DEPLOY_TOKEN"
+# gitlab_url = "https://gitlab.example.com"   # default: https://gitlab.com
+token_path   = "cicd/gitlab/rotator-token"    # token read from secret backend
+masked       = true
+protected    = false
+
+# ---------------------------------------------------------------------------
+# GitLab CI/CD — database password propagated to a mono-repo
+# ---------------------------------------------------------------------------
+[[targets]]
+type         = "gitlab"
+project_id   = "myorg/platform"
+variable_key = "PROD_DB_PASSWORD"
+token_path   = "cicd/gitlab/rotator-token"
+masked       = true
+protected    = true
+
+# ---------------------------------------------------------------------------
+# GitLab CI/CD — self-hosted instance
+# ---------------------------------------------------------------------------
+[[targets]]
+type         = "gitlab"
+project_id   = "42"                          # numeric project ID
+variable_key = "REGISTRY_PASSWORD"
+gitlab_url   = "https://gitlab.corp.example.com"
+token_path   = "cicd/gitlab-internal/rotator-token"
+masked       = true
+
+# ---------------------------------------------------------------------------
+# GitHub Actions — repo-level encrypted secret (requires: --features github)
+# secret_name uses libsodium sealed-box encryption (matches GitHub API spec)
+# ---------------------------------------------------------------------------
+[[targets]]
+type        = "github"
+owner       = "myorg"
+repo        = "backend-service"
+secret_name = "PROD_DB_PASSWORD"
+token_path  = "cicd/github/rotator-pat"     # fine-grained PAT from secret backend
+
+# ---------------------------------------------------------------------------
+# GitHub Actions — environment-scoped secret (Production environment gate)
+# ---------------------------------------------------------------------------
+[[targets]]
+type        = "github"
+owner       = "myorg"
+repo        = "backend-service"
+secret_name = "STRIPE_SECRET_KEY"
+env_name    = "production"                  # scoped to the "production" environment
+token_path  = "cicd/github/rotator-pat"
+
+# ---------------------------------------------------------------------------
+# GitHub Actions — plaintext variable (non-sensitive config values)
+# variable_name uses the unencrypted Actions Variables API (PATCH / POST)
+# ---------------------------------------------------------------------------
+[[targets]]
+type          = "github"
+owner         = "myorg"
+repo          = "frontend"
+variable_name = "NEXT_PUBLIC_API_URL"
+token_path    = "cicd/github/rotator-pat"
+
+# ---------------------------------------------------------------------------
+# GitHub Actions — secret in a second organization repo
+# ---------------------------------------------------------------------------
+[[targets]]
+type        = "github"
+owner       = "myorg"
+repo        = "data-pipeline"
+secret_name = "SNOWFLAKE_PASSWORD"
+env_name    = "production"
+token_path  = "cicd/github/rotator-pat"
+
+# =============================================================================
+# Audit log — append-only JSONL record of every rotation event
+# Each line is a self-contained JSON object (schema_version, event, path, etc.)
+# Compatible with Splunk, Datadog Logs, CloudWatch, and jq.
+# =============================================================================
+[audit]
+log_file = "/var/log/asr/audit.jsonl"
+stdout   = false   # set true to also emit events to stdout (useful in containers)
+
+# =============================================================================
+# Notifications — POST a JSON payload to a webhook on rotation events
+# Compatible with Slack incoming webhooks, PagerDuty Events API v2,
+# Opsgenie, Discord, and any HTTP endpoint.
+# =============================================================================
+[notification]
+webhook_url  = "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXX"
+auth_header  = "Bearer ${ASR_WEBHOOK_TOKEN}"   # optional; omit for Slack
+# events controls which operations send a notification (default: all three)
+events = ["rotate", "flag", "scan"]
+
+# =============================================================================
+# Secret paths tracked in the backend
+# =============================================================================
+# The config file above defines HOW the rotator connects and WHERE it propagates
+# secrets.  The list of WHICH secrets to rotate lives in the backend itself
+# (metadata attached to each secret path).
+#
+# To flag a secret for automatic rotation:
+#   asr flag infra/postgres/primary/admin-password     --period 3
+#   asr flag infra/mysql/legacy/svc-account-password   --period 6
+#   asr flag app/stripe/secret-key                     --period 1
+#   asr flag app/sendgrid/api-key                      --period 3
+#   asr flag app/jwt/signing-key                       --period 6
+#   asr flag app/session-secret                        --period 6
+#   asr flag app/hmac-key                              --period 12
+#   asr flag app/redis/auth-token                      --period 3
+#   asr flag app/rabbitmq/password                     --period 6
+#   asr flag app/elasticsearch/password                --period 6
+#   asr flag app/datadog/api-key                       --period 3
+#   asr flag app/pagerduty/integration-key             --period 12
+#   asr flag app/twilio/auth-token                     --period 3
+#   asr flag cicd/github/rotator-pat                   --period 3
+#   asr flag cicd/gitlab/rotator-token                 --period 3
+#   asr flag cicd/gitlab-internal/rotator-token        --period 3
+#
+# To see which secrets are overdue:
+#   asr scan
+#   asr scan --path infra/postgres
+#
+# To rotate a specific secret (and propagate to all matching targets):
+#   asr rotate infra/postgres/primary/admin-password
+#   asr rotate app/stripe/secret-key
