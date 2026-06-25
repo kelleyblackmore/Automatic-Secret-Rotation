@@ -57,9 +57,18 @@ jobs:
       - name: Install cross-compilation tools (Linux ARM64)
         if: matrix.cross == true
         run: |
+          sudo dpkg --add-architecture arm64
           sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
+          sudo apt-get install -y gcc-aarch64-linux-gnu libssl-dev:arm64
           echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          echo "PKG_CONFIG_ALLOW_CROSS=1" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig" >> $GITHUB_ENV
+          echo "OPENSSL_DIR=/usr" >> $GITHUB_ENV
+
+      - name: Set Windows C11 build flag (required by aws-lc-sys on MSVC)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: echo "CFLAGS=/std:c11" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
