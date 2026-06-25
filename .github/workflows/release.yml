@@ -28,7 +28,7 @@ jobs:
             target: aarch64-unknown-linux-gnu
             asset_name: asr-linux-arm64
             strip: true
-            cross: true
+            use_cross: true
 
           - os: macos-latest
             target: x86_64-apple-darwin
@@ -44,7 +44,7 @@ jobs:
             target: x86_64-pc-windows-msvc
             asset_name: asr-windows-x86_64.exe
             strip: false
-            cflags: /std:c11
+            use_cmake: true
 
     steps:
       - name: Checkout repository
@@ -55,27 +55,28 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install cross-compilation tools (Linux ARM64)
-        if: matrix.cross == true
-        run: |
-          sudo dpkg --add-architecture arm64
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu libssl-dev:arm64
-          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
-          echo "PKG_CONFIG_ALLOW_CROSS=1" >> $GITHUB_ENV
-          echo "PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig" >> $GITHUB_ENV
-          echo "OPENSSL_INCLUDE_DIR=/usr/include" >> $GITHUB_ENV
-          echo "OPENSSL_LIB_DIR=/usr/lib/aarch64-linux-gnu" >> $GITHUB_ENV
+      - name: Install cross tool (Linux ARM64)
+        if: matrix.use_cross == true
+        run: cargo install cross --git https://github.com/cross-rs/cross
 
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.target }}
+          key: ${{ matrix.target }}-v2
 
-      - name: Build release binary
-        env:
-          CFLAGS: ${{ matrix.cflags }}
+      - name: Build release binary (standard)
+        if: matrix.use_cross != true && matrix.use_cmake != true
         run: cargo build --release --target ${{ matrix.target }} --locked
+
+      - name: Build release binary (Windows — CMake builder avoids MSVC C11 flag issue)
+        if: matrix.use_cmake == true
+        env:
+          AWS_LC_SYS_CMAKE_BUILDER: "1"
+        run: cargo build --release --target ${{ matrix.target }} --locked
+
+      - name: Build release binary (Linux ARM64 — cross handles sysroot and OpenSSL)
+        if: matrix.use_cross == true
+        run: cross build --release --target ${{ matrix.target }} --locked
 
       - name: Strip binary (Unix)
         if: matrix.strip == true && runner.os != 'Windows'
