@@ -555,6 +555,9 @@ async fn build_signed_sts_request(vault_header: Option<&str>) -> Result<(String,
 }
 
 fn sigv4_hmac(key: &[u8], data: &[u8]) -> Vec<u8> {
+    // hmac 0.13 no longer surfaces `new_from_slice` through `Mac`; it comes
+    // from `KeyInit`, which has to be imported explicitly.
+    use hmac::digest::KeyInit;
     use hmac::{Hmac, Mac};
     use sha2::Sha256;
     let mut mac = <Hmac<Sha256>>::new_from_slice(key).expect("HMAC accepts any key length");
@@ -600,5 +603,44 @@ impl SecretBackend for VaultBackend {
 
     fn backend_type(&self) -> &'static str {
         "HashiCorp Vault"
+    }
+}
+
+#[cfg(test)]
+mod sigv4_tests {
+    use super::{hex_str, sigv4_hmac};
+
+    /// Known-answer test for the SigV4 signing-key derivation, using the
+    /// example credentials and expected signing key published in the AWS
+    /// Signature Version 4 documentation.
+    ///
+    /// `sigv4_hmac` had no coverage at all, which made the hmac 0.12 -> 0.13
+    /// bump (where `new_from_slice` moved from `Mac` to `KeyInit`) impossible
+    /// to verify as behaviour-preserving. This pins the output so a future
+    /// RustCrypto bump that silently changes the result fails loudly instead
+    /// of shipping a broken Vault AWS-auth login.
+    #[test]
+    fn derives_the_documented_aws_signing_key() {
+        let secret_key = "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY";
+
+        let k_date = sigv4_hmac(format!("AWS4{secret_key}").as_bytes(), b"20120215");
+        assert_eq!(
+            hex_str(&k_date),
+            "969fbb94feb542b71ede6f87fe4d5fa29c789342b0f407474670f0c2489e0a0d"
+        );
+
+        let k_region = sigv4_hmac(&k_date, b"us-east-1");
+        let k_service = sigv4_hmac(&k_region, b"iam");
+        let k_signing = sigv4_hmac(&k_service, b"aws4_request");
+
+        assert_eq!(
+            hex_str(&k_signing),
+            "f4780e2d9f65fa895f9c67b32ce1baf0b0d8a43505a000a1a9e090d414db404d"
+        );
+    }
+
+    #[test]
+    fn hex_str_pads_single_digit_bytes() {
+        assert_eq!(hex_str(&[0x00, 0x0f, 0xa0, 0xff]), "000fa0ff");
     }
 }
