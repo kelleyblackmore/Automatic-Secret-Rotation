@@ -9,21 +9,11 @@ all-features = true
 
 [advisories]
 # Vulnerabilities are a hard failure; `cargo audit` in the same workflow is the
-# primary gate. Everything ignored below is a *warning*-level advisory that we
-# have consciously accepted, with the reason recorded.
+# primary gate. The tree is currently clean — 0 vulnerabilities and 0
+# warnings — so there is nothing to ignore. Add entries here only with the
+# reason recorded alongside.
 yanked = "deny"
-ignore = [
-    # All three arrive transitively through `kube 0.98` and cannot be resolved
-    # without the kube 0.98 -> 4.x upgrade tracked in issue #39. They are only
-    # in the tree when the optional `ocp` feature is enabled.
-    #
-    # `backoff` is unmaintained (kube-runtime's retry backoff).
-    "RUSTSEC-2025-0012",
-    # `instant` is unmaintained (pulled in by `backoff`).
-    "RUSTSEC-2024-0384",
-    # `rustls-pemfile` is unmaintained (kube-client's PEM parsing).
-    "RUSTSEC-2025-0134",
-]
+ignore = []
 
 [licenses]
 # Every licence observed in the current tree. Adding a dependency under a
@@ -37,6 +27,9 @@ allow = [
     "BSD-3-Clause",
     "BSL-1.0",
     "CC0-1.0",
+    # Mozilla's CA root certificate bundle, via webpki-root-certs ->
+    # rustls-platform-verifier -> kube-client. A permissive data licence.
+    "CDLA-Permissive-2.0",
     "ISC",
     "MIT",
     "MIT-0",
