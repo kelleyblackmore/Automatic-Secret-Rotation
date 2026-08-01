@@ -221,3 +221,333 @@ impl SecretBackend for OcpBackend {
         "OpenShift/Kubernetes"
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use http::{Request, Response};
+    use http_body_util::BodyExt;
+    use kube::client::Body;
+
+    /// A request the backend sent to the (mocked) API server.
+    #[derive(Clone, Debug)]
+    struct Recorded {
+        method: String,
+        uri: String,
+        body: String,
+    }
+
+    #[derive(Clone, Default)]
+    struct RequestLog(std::sync::Arc<std::sync::Mutex<Vec<Recorded>>>);
+
+    impl RequestLog {
+        fn calls(&self) -> Vec<Recorded> {
+            self.0.lock().unwrap().clone()
+        }
+    }
+
+    /// Build a `Client` backed by canned responses instead of a real API
+    /// server, recording each request so assertions can check what was sent.
+    ///
+    /// `kube::Client::new` accepts any tower `Service`, which is what makes it
+    /// possible to cover this module's request/response mapping without a
+    /// cluster. The `ocp` backend previously had no tests at all, so the
+    /// kube 0.98 -> 4.x bump could have changed serialization with nothing to
+    /// catch it.
+    ///
+    /// Responses are served in order; the last one repeats if the code makes
+    /// more calls than were queued.
+    fn mock_client(responses: Vec<(u16, serde_json::Value)>) -> (Client, RequestLog) {
+        let log = RequestLog::default();
+        let sink = log.clone();
+        let queue = std::sync::Arc::new(std::sync::Mutex::new(responses));
+
+        let service = tower::service_fn(move |req: Request<Body>| {
+            let sink = sink.clone();
+            let queue = queue.clone();
+            async move {
+                let method = req.method().to_string();
+                let uri = req.uri().to_string();
+                let bytes = req.into_body().collect().await.unwrap().to_bytes();
+                sink.0.lock().unwrap().push(Recorded {
+                    method,
+                    uri,
+                    body: String::from_utf8_lossy(&bytes).into_owned(),
+                });
+
+                let (status, body) = {
+                    let mut q = queue.lock().unwrap();
+                    if q.len() > 1 {
+                        q.remove(0)
+                    } else {
+                        q[0].clone()
+                    }
+                };
+
+                Ok::<_, std::convert::Infallible>(
+                    Response::builder()
+                        .status(status)
+                        .header("content-type", "application/json")
+                        .body(Body::from(body.to_string().into_bytes()))
+                        .unwrap(),
+                )
+            }
+        });
+        (Client::new(service, "default"), log)
+    }
+
+    fn ok(body: serde_json::Value) -> Vec<(u16, serde_json::Value)> {
+        vec![(200, body)]
+    }
+
+    fn backend(client: Client) -> OcpBackend {
+        OcpBackend {
+            client,
+            namespace: "asr-test".to_string(),
+        }
+    }
+
+    fn secret_json(annotations: serde_json::Value, data: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({
+            "apiVersion": "v1",
+            "kind": "Secret",
+            "metadata": { "name": "myapp-db", "namespace": "asr-test", "annotations": annotations },
+            "data": data
+        })
+    }
+
+    fn failure(code: u16, reason: &str, message: &str) -> serde_json::Value {
+        serde_json::json!({
+            "apiVersion": "v1",
+            "kind": "Status",
+            "status": "Failure",
+            "message": message,
+            "reason": reason,
+            "code": code
+        })
+    }
+
+    fn one_entry(key: &str, value: &str) -> HashMap<String, String> {
+        let mut m = HashMap::new();
+        m.insert(key.to_string(), value.to_string());
+        m
+    }
+
+    // ---- pure helpers -----------------------------------------------------
+
+    #[test]
+    fn annotation_key_round_trips_through_underscores() {
+        // Kubernetes annotations conventionally use '-', ASR metadata uses '_'.
+        let key = OcpBackend::annotation_key("rotation_period_months");
+        assert_eq!(key, "asr.io/rotation-period-months");
+        assert_eq!(
+            OcpBackend::meta_key_from_annotation(&key).as_deref(),
+            Some("rotation_period_months")
+        );
+    }
+
+    #[test]
+    fn meta_key_ignores_foreign_annotations() {
+        assert_eq!(
+            OcpBackend::meta_key_from_annotation("kubectl.kubernetes.io/last-applied"),
+            None
+        );
+    }
+
+    #[test]
+    fn path_and_name_convert_both_ways() {
+        assert_eq!(OcpBackend::path_to_name("myapp/db"), "myapp-db");
+        assert_eq!(OcpBackend::name_to_path("myapp-db"), "myapp/db");
+    }
+
+    // ---- read path --------------------------------------------------------
+
+    #[tokio::test]
+    async fn read_secret_decodes_data_and_strips_annotation_prefix() {
+        let (client, log) = mock_client(ok(secret_json(
+            serde_json::json!({
+                "asr.io/rotation-enabled": "true",
+                "kubectl.kubernetes.io/last-applied": "{}"
+            }),
+            // base64("s3cret")
+            serde_json::json!({ "password": "czNjcmV0" }),
+        )));
+
+        let secret = backend(client).read_secret("myapp/db").await.unwrap();
+
+        assert_eq!(
+            secret.data.get("password").map(String::as_str),
+            Some("s3cret")
+        );
+
+        let meta = secret.metadata.expect("annotations should map to metadata");
+        assert_eq!(
+            meta.get("rotation_enabled").map(String::as_str),
+            Some("true")
+        );
+        // Non-ASR annotations must not leak into rotation metadata.
+        assert!(!meta.contains_key("last_applied"));
+
+        let call = &log.calls()[0];
+        assert_eq!(call.method, "GET");
+        assert!(
+            call.uri
+                .contains("/api/v1/namespaces/asr-test/secrets/myapp-db"),
+            "unexpected request URI: {}",
+            call.uri
+        );
+    }
+
+    #[tokio::test]
+    async fn read_metadata_returns_only_asr_annotations() {
+        let (client, _) = mock_client(ok(secret_json(
+            serde_json::json!({
+                "asr.io/last-rotated": "2026-08-01T00:00:00Z",
+                "other.io/thing": "ignored"
+            }),
+            serde_json::json!({}),
+        )));
+
+        let meta = backend(client).read_metadata("myapp/db").await.unwrap();
+
+        assert_eq!(meta.len(), 1);
+        assert_eq!(
+            meta.get("last_rotated").map(String::as_str),
+            Some("2026-08-01T00:00:00Z")
+        );
+    }
+
+    #[tokio::test]
+    async fn list_secrets_filters_by_prefix_and_maps_names_back_to_paths() {
+        let (client, _) = mock_client(ok(serde_json::json!({
+            "apiVersion": "v1",
+            "kind": "SecretList",
+            "metadata": {},
+            "items": [
+                { "metadata": { "name": "myapp-db" } },
+                { "metadata": { "name": "myapp-api" } },
+                { "metadata": { "name": "otherapp-db" } }
+            ]
+        })));
+
+        let mut names = backend(client).list_secrets("myapp").await.unwrap();
+        names.sort();
+
+        assert_eq!(names, vec!["myapp/api".to_string(), "myapp/db".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn read_secret_surfaces_api_errors_with_the_asr_path() {
+        let (client, _) = mock_client(vec![(
+            404,
+            failure(404, "NotFound", "secrets myapp-db not found"),
+        )]);
+
+        let err = backend(client)
+            .read_secret("myapp/db")
+            .await
+            .expect_err("404 should be an error");
+
+        assert!(
+            err.to_string().contains("myapp/db"),
+            "error should name the ASR path, got: {err}"
+        );
+    }
+
+    // ---- write path -------------------------------------------------------
+
+    #[tokio::test]
+    async fn write_secret_creates_when_absent() {
+        let (client, log) = mock_client(ok(secret_json(
+            serde_json::json!({}),
+            serde_json::json!({}),
+        )));
+
+        backend(client)
+            .write_secret("myapp/db", one_entry("password", "s3cret"))
+            .await
+            .unwrap();
+
+        let calls = log.calls();
+        assert_eq!(calls.len(), 1, "a successful create should not also patch");
+        assert_eq!(calls[0].method, "POST");
+        // Secret data goes over the wire base64-encoded.
+        assert!(
+            calls[0].body.contains("czNjcmV0"),
+            "create body should carry base64 data, got: {}",
+            calls[0].body
+        );
+    }
+
+    /// The 409 fallback is the subtlest branch in this module: `create` is
+    /// tried first, and only a conflict may fall through to a merge patch.
+    #[tokio::test]
+    async fn write_secret_falls_back_to_patch_on_conflict() {
+        let (client, log) = mock_client(vec![
+            (
+                409,
+                failure(409, "AlreadyExists", "secrets myapp-db already exists"),
+            ),
+            (
+                200,
+                secret_json(serde_json::json!({}), serde_json::json!({})),
+            ),
+        ]);
+
+        backend(client)
+            .write_secret("myapp/db", one_entry("password", "s3cret"))
+            .await
+            .unwrap();
+
+        let calls = log.calls();
+        assert_eq!(calls.len(), 2, "conflict should trigger exactly one patch");
+        assert_eq!(calls[0].method, "POST");
+        assert_eq!(calls[1].method, "PATCH");
+        assert!(
+            calls[1].body.contains("czNjcmV0"),
+            "patch body should carry the new data, got: {}",
+            calls[1].body
+        );
+    }
+
+    /// A non-409 failure must propagate, not be silently patched over.
+    #[tokio::test]
+    async fn write_secret_propagates_non_conflict_errors() {
+        let (client, log) = mock_client(vec![(
+            403,
+            failure(403, "Forbidden", "secrets is forbidden"),
+        )]);
+
+        let err = backend(client)
+            .write_secret("myapp/db", one_entry("password", "s3cret"))
+            .await
+            .expect_err("403 should be an error");
+
+        assert_eq!(log.calls().len(), 1, "403 must not fall through to a patch");
+        assert!(
+            err.to_string().contains("myapp/db"),
+            "error should name the ASR path, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn update_metadata_writes_prefixed_annotations() {
+        let (client, log) = mock_client(ok(secret_json(
+            serde_json::json!({}),
+            serde_json::json!({}),
+        )));
+
+        backend(client)
+            .update_metadata("myapp/db", one_entry("rotation_enabled", "true"))
+            .await
+            .unwrap();
+
+        let calls = log.calls();
+        assert_eq!(calls[0].method, "PATCH");
+        assert!(
+            calls[0].body.contains("asr.io/rotation-enabled"),
+            "underscores should become dashes under the ASR prefix, got: {}",
+            calls[0].body
+        );
+    }
+}

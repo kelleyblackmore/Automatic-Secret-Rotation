@@ -3738,6 +3738,8 @@ dependencies = [
  "clap",
  "crypto_box",
  "hmac 0.13.0",
+ "http 1.5.0",
+ "http-body-util",
  "k8s-openapi",
  "keyring",
  "kube",
@@ -3756,6 +3758,7 @@ dependencies = [
  "tokio",
  "tokio-postgres",
  "toml",
+ "tower",
  "tracing",
  "tracing-subscriber",
 ]
