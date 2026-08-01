@@ -100,7 +100,7 @@ jobs:
           name: ${{ matrix.asset_name }}
           path: ${{ matrix.asset_name }}
           retention-days: 7
-        continue-on-error: true
+          if-no-files-found: error
 
   create-release:
     name: Create GitHub Release
@@ -119,8 +119,30 @@ jobs:
           merge-multiple: true
           path: release-assets
 
-      - name: List release assets
-        run: ls -lh release-assets/
+      # v0.6.1 published with zero assets. Guard the other way round too: never
+      # create a release unless every binary actually arrived.
+      - name: Verify all release assets are present
+        run: |
+          ls -lh release-assets/
+          expected="
+            asr-linux-x86_64
+            asr-linux-arm64
+            asr-darwin-x86_64
+            asr-darwin-arm64
+            asr-windows-x86_64.exe
+          "
+          missing=0
+          for asset in $expected; do
+            if [ ! -s "release-assets/$asset" ]; then
+              echo "::error::Missing or empty release asset: $asset"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::Refusing to create a release with incomplete assets"
+            exit 1
+          fi
+          echo "All 5 binaries present."
 
       - name: Extract version
         id: version
