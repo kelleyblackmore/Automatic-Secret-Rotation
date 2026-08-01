@@ -1,0 +1,59 @@
+# cargo-deny configuration — https://embarkstudios.github.io/cargo-deny/
+#
+# Run locally with:
+#   cargo install cargo-deny --locked
+#   cargo deny --all-features check advisories bans licenses sources
+
+[graph]
+all-features = true
+
+[advisories]
+# Vulnerabilities are a hard failure; `cargo audit` in the same workflow is the
+# primary gate. Everything ignored below is a *warning*-level advisory that we
+# have consciously accepted, with the reason recorded.
+yanked = "deny"
+ignore = [
+    # All three arrive transitively through `kube 0.98` and cannot be resolved
+    # without the kube 0.98 -> 4.x upgrade tracked in issue #39. They are only
+    # in the tree when the optional `ocp` feature is enabled.
+    #
+    # `backoff` is unmaintained (kube-runtime's retry backoff).
+    "RUSTSEC-2025-0012",
+    # `instant` is unmaintained (pulled in by `backoff`).
+    "RUSTSEC-2024-0384",
+    # `rustls-pemfile` is unmaintained (kube-client's PEM parsing).
+    "RUSTSEC-2025-0134",
+]
+
+[licenses]
+# Every licence observed in the current tree. Adding a dependency under a
+# licence not on this list is a deliberate decision, so make CI ask for it.
+allow = [
+    "0BSD",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-1-Clause",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+confidence-threshold = 0.8
+
+[bans]
+# Duplicate versions are common and mostly harmless in a Rust tree; warn so
+# they show up in the log without turning CI red.
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

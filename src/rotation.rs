@@ -54,7 +54,9 @@ pub fn needs_rotation(
 
 /// Generate a random secret
 pub fn generate_secret(length: usize) -> String {
-    use rand::Rng;
+    // rand 0.10 moved the range-sampling helpers off `Rng` (now a re-export of
+    // `rand_core::Rng`) and onto the `RngExt` extension trait.
+    use rand::RngExt;
     const CHARSET: &[u8] =
         b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*";
     let mut rng = rand::rng();

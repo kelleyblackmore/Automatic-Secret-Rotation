@@ -30,3 +30,6 @@ rotator-config.toml
 /target
 .DS_Store
 src/.DS_Store
+# Local artifacts from manually driving the release workflow
+/release-assets/
+/release-notes.md
