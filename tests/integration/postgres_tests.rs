@@ -8,7 +8,7 @@
 
 #![cfg(feature = "integration")]
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use secret_rotator::config::PostgresTargetConfig;
 use secret_rotator::targets::{PostgresTarget, Target};
 
@@ -40,9 +40,7 @@ async fn test_postgres_update_and_verify_password() -> Result<()> {
     let new_password = "rotated_password_456!@#";
 
     // Create user (ignore error if already exists)
-    let _ = target
-        .update_password(test_user, initial_password)
-        .await;
+    let _ = target.update_password(test_user, initial_password).await;
 
     // Rotate password
     target.update_password(test_user, new_password).await?;
@@ -80,10 +78,7 @@ async fn test_postgres_password_with_special_chars() -> Result<()> {
             .verify_connection(test_user, password, Some("testdb"))
             .await
             .with_context(|| {
-                format!(
-                    "Failed to verify connection with password: {:?}",
-                    password
-                )
+                format!("Failed to verify connection with password: {:?}", password)
             })?;
     }
 
