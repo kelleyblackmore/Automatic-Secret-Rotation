@@ -48,7 +48,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -95,7 +95,7 @@ jobs:
         run: Copy-Item "target/${{ matrix.target }}/release/asr.exe" "${{ matrix.asset_name }}"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.asset_name }}
           path: ${{ matrix.asset_name }}
@@ -110,10 +110,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           pattern: asr-*
           merge-multiple: true
@@ -127,11 +127,11 @@ jobs:
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: Release ${{ steps.version.outputs.version }}
-          draft: false
+          draft: true
           prerelease: false
           body: |
             ## Release ${{ steps.version.outputs.version }}
@@ -179,7 +179,14 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+
+      - name: Download release binaries for attestation
+        uses: actions/download-artifact@v5
+        with:
+          pattern: asr-*
+          merge-multiple: true
+          path: release-assets
 
       - name: Generate SBOM (SPDX JSON)
         uses: anchore/sbom-action@v0
@@ -201,13 +208,6 @@ jobs:
           upload-artifact: true
           upload-release-assets: true
 
-      - name: Download release binaries for attestation
-        uses: actions/download-artifact@v4
-        with:
-          pattern: asr-*
-          merge-multiple: true
-          path: release-assets
-
       - name: Attest SBOM provenance
         uses: actions/attest-sbom@v2
         with:
@@ -218,3 +218,25 @@ jobs:
             release-assets/asr-darwin-arm64
             release-assets/asr-windows-x86_64.exe
           sbom-path: asr-${{ github.ref_name }}.spdx.json
+
+  # This repo has GitHub's immutable releases enabled: once a release is
+  # published its asset list is frozen and every further upload 422s with
+  # "Cannot upload assets to an immutable release". So the release is created as
+  # a draft, every job that attaches assets runs against the draft, and only
+  # then do we flip it to published.
+  publish:
+    name: Publish Release
+    needs: [create-release, sbom]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Flip draft to published
+        run: gh release edit ${{ github.ref_name }} --draft=false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

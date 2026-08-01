@@ -1,0 +1,40 @@
+version: 2
+
+updates:
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
+    groups:
+      # The AWS SDK crates all move together; one PR instead of six.
+      aws-sdk:
+        patterns:
+          - "aws-*"
+      # Same for the kube/k8s pair, which must stay version-locked.
+      kubernetes:
+        patterns:
+          - "kube"
+          - "k8s-openapi"
+      patch-and-minor:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+    groups:
+      actions:
+        patterns:
+          - "*"

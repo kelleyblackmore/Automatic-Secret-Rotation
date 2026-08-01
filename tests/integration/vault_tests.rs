@@ -35,7 +35,10 @@ async fn test_vault_write_and_read() -> Result<()> {
     backend.write_secret(path, data).await?;
 
     let secret = backend.read_secret(path).await?;
-    assert_eq!(secret.data.get("password").map(String::as_str), Some("initial-secret"));
+    assert_eq!(
+        secret.data.get("password").map(String::as_str),
+        Some("initial-secret")
+    );
 
     Ok(())
 }
@@ -54,13 +57,19 @@ async fn test_vault_rotate_updates_value() -> Result<()> {
 
     // Rotate
     let new_secret = rotation::rotate_secret(&backend, path, 32).await?;
-    assert_ne!(new_secret, "old-password-abc", "New secret should differ from old");
+    assert_ne!(
+        new_secret, "old-password-abc",
+        "New secret should differ from old"
+    );
     assert_eq!(new_secret.len(), 32);
 
     // Read back and verify
     let stored = backend.read_secret(path).await?;
     let stored_value = stored.data.get("password").expect("password key missing");
-    assert_eq!(stored_value, &new_secret, "Stored value should match returned secret");
+    assert_eq!(
+        stored_value, &new_secret,
+        "Stored value should match returned secret"
+    );
 
     Ok(())
 }

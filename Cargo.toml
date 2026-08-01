@@ -1,6 +1,6 @@
 [package]
 name = "secret-rotator"
-version = "0.6.1"
+version = "0.6.2"
 edition = "2021"
 rust-version = "1.75"
 authors = ["Kelley Blackmore"]
@@ -39,13 +39,32 @@ reqwest = { version = "0.12", features = ["json"] }
 anyhow = "1"
 thiserror = "2"
 chrono = { version = "0.4", features = ["serde"] }
-toml = "0.8"
+toml = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-rand = "0.9"
-aws-sdk-secretsmanager = "1"
-aws-config = { version = "1", features = ["behavior-version-latest"] }
-aws-sdk-sts = "1"
+rand = "0.10"
+# NOTE: the AWS SDK crates' default feature set includes the legacy `rustls`
+# feature, which drags in rustls 0.21 / rustls-webpki 0.101 (RUSTSEC-2026-0098,
+# -0099, -0104). `default-https-client` is the modern path (rustls 0.23 via
+# aws-lc), so opt out of defaults and re-enable only what we use.
+aws-sdk-secretsmanager = { version = "1", default-features = false, features = [
+    "default-https-client",
+    "rt-tokio",
+    "behavior-version-latest",
+] }
+aws-config = { version = "1", default-features = false, features = [
+    "behavior-version-latest",
+    "default-https-client",
+    "rt-tokio",
+    "credentials-process",
+    "sso",
+] }
+aws-sdk-sts = { version = "1", default-features = false, features = [
+    "default-https-client",
+    "rt-tokio",
+    "sigv4a",
+    "behavior-version-latest",
+] }
 aws-credential-types = "1"
 hmac = "0.12"
 sha2 = "0.10"
@@ -59,10 +78,10 @@ kube = { version = "0.98", features = ["runtime", "derive"], optional = true }
 k8s-openapi = { version = "0.24", features = ["v1_31"], optional = true }
 
 # Optional: MySQL/MariaDB target
-mysql_async = { version = "0.34", optional = true, features = ["native-tls"] }
+mysql_async = { version = "0.37", optional = true, features = ["native-tls"] }
 
 # Optional: system keychain (macOS Keychain, Windows Credential Store, Linux Secret Service)
-keyring = { version = "3", optional = true }
+keyring = { version = "4", optional = true }
 
 # Optional: NaCl sealed-box encryption for GitHub Actions secrets
 crypto_box = { version = "0.9", features = ["seal"], optional = true }
