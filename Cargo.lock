@@ -3591,7 +3591,7 @@ dependencies = [
  "chrono",
  "clap",
  "crypto_box",
- "hmac 0.12.1",
+ "hmac 0.13.0",
  "k8s-openapi",
  "keyring",
  "kube",
