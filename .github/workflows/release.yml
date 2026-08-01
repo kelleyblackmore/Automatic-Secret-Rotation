@@ -48,7 +48,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -95,7 +95,7 @@ jobs:
         run: Copy-Item "target/${{ matrix.target }}/release/asr.exe" "${{ matrix.asset_name }}"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.asset_name }}
           path: ${{ matrix.asset_name }}
@@ -110,10 +110,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           pattern: asr-*
           merge-multiple: true
@@ -127,7 +127,7 @@ jobs:
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_name }}
           name: Release ${{ steps.version.outputs.version }}
@@ -179,10 +179,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Download release binaries for attestation
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           pattern: asr-*
           merge-multiple: true
@@ -209,7 +209,7 @@ jobs:
           upload-release-assets: true
 
       - name: Attest SBOM provenance
-        uses: actions/attest-sbom@v2
+        uses: actions/attest-sbom@v4
         with:
           subject-path: |
             release-assets/asr-linux-x86_64
@@ -234,7 +234,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Flip draft to published
         run: gh release edit ${{ github.ref_name }} --draft=false
