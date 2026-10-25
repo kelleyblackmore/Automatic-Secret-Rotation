@@ -242,7 +242,7 @@ impl Target for GitHubTarget {
 ///
 /// This matches what GitHub's API expects for encrypted Action secrets.
 fn encrypt_secret(public_key_b64: &str, plaintext: &[u8]) -> Result<String> {
-    use blake2::{digest::VariableOutput, Blake2bVar};
+    use blake2::{digest::consts::U24, Blake2b, Digest};
     use crypto_box::{
         aead::{generic_array::GenericArray, Aead, OsRng},
         PublicKey, SalsaBox, SecretKey,
@@ -260,14 +260,10 @@ fn encrypt_secret(public_key_b64: &str, plaintext: &[u8]) -> Result<String> {
     let ephemeral_pk = ephemeral_sk.public_key();
 
     // Nonce = BLAKE2b(ephemeral_pk || recipient_pk, outlen=24) — per libsodium spec
-    let mut nonce_bytes = [0u8; 24];
-    {
-        let mut h = Blake2bVar::new(24).expect("24 is a valid Blake2b output size");
-        blake2::digest::Update::update(&mut h, ephemeral_pk.as_bytes());
-        blake2::digest::Update::update(&mut h, &pk_array);
-        h.finalize_variable(&mut nonce_bytes)
-            .expect("output buffer matches requested length");
-    }
+    let nonce_bytes = Blake2b::<U24>::new()
+        .chain_update(ephemeral_pk.as_bytes())
+        .chain_update(pk_array)
+        .finalize();
     let nonce = GenericArray::clone_from_slice(&nonce_bytes);
 
     // X25519 DH + XSalsa20Poly1305 encrypt
@@ -282,4 +278,29 @@ fn encrypt_secret(public_key_b64: &str, plaintext: &[u8]) -> Result<String> {
     output.extend_from_slice(&ciphertext);
 
     Ok(crate::util::base64::encode(&output))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::encrypt_secret;
+    use crypto_box::{aead::OsRng, SecretKey};
+
+    /// The sealed box must open with crypto_box's own libsodium-compatible
+    /// `unseal`; a wrong nonce derivation would make GitHub reject the secret.
+    #[test]
+    fn test_encrypt_secret_round_trips_through_unseal() {
+        let recipient_sk = SecretKey::generate(&mut OsRng);
+        let pk_b64 = crate::util::base64::encode(recipient_sk.public_key().as_bytes());
+
+        let sealed_b64 = encrypt_secret(&pk_b64, b"s3cr3t-value").unwrap();
+        let sealed = crate::util::base64::decode(&sealed_b64).unwrap();
+
+        assert_eq!(recipient_sk.unseal(&sealed).unwrap(), b"s3cr3t-value");
+    }
+
+    #[test]
+    fn test_encrypt_secret_rejects_short_public_key() {
+        let pk_b64 = crate::util::base64::encode(&[0u8; 16]);
+        assert!(encrypt_secret(&pk_b64, b"x").is_err());
+    }
 }

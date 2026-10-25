@@ -74,7 +74,6 @@ aws-config = { version = "1", default-features = false, features = [
 aws-sdk-sts = { version = "1", default-features = false, features = [
     "default-https-client",
     "rt-tokio",
-    "sigv4a",
     "behavior-version-latest",
 ] }
 aws-credential-types = "1"
@@ -98,7 +97,7 @@ keyring = { version = "4", optional = true }
 # Optional: NaCl sealed-box encryption for GitHub Actions secrets
 crypto_box = { version = "0.9", features = ["seal"], optional = true }
 # Optional: Blake2b nonce derivation for GitHub sealed-box (libsodium-compatible)
-blake2 = { version = "0.10", optional = true }
+blake2 = { version = "0.11", optional = true }
 
 # Vendored OpenSSL for Linux ARM64 cross-compilation (cross Docker image lacks system headers)
 [target.'cfg(all(target_arch = "aarch64", target_os = "linux"))'.dependencies]

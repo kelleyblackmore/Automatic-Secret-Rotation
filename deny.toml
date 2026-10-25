@@ -9,17 +9,25 @@ all-features = true
 
 [advisories]
 # Vulnerabilities are a hard failure; `cargo audit` in the same workflow is the
-# primary gate. The tree is currently clean — 0 vulnerabilities and 0
-# warnings — so there is nothing to ignore. Add entries here only with the
-# reason recorded alongside.
+# primary gate. The tree has 0 vulnerabilities; the only entries below are
+# informational advisories with no upgrade path. Add entries here only with
+# the reason recorded alongside.
 yanked = "deny"
-ignore = []
+ignore = [
+    # zvariant, zvariant_derive and zbus_names were folded into zbus 6 and are
+    # flagged unmaintained, with no patched version. They are only reachable
+    # through the optional `keychain` feature (keyring -> secret-service ->
+    # zbus 5), and secret-service has no zbus 6 release yet. Drop these once
+    # keyring's Linux store moves to zbus 6.
+    { id = "RUSTSEC-2026-0370", reason = "zvariant unmaintained; merged into zbus 6, awaiting secret-service upgrade" },
+    { id = "RUSTSEC-2026-0371", reason = "zbus_names unmaintained; merged into zbus 6, awaiting secret-service upgrade" },
+    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive unmaintained; merged into zbus 6, awaiting secret-service upgrade" },
+]
 
 [licenses]
 # Every licence observed in the current tree. Adding a dependency under a
 # licence not on this list is a deliberate decision, so make CI ask for it.
 allow = [
-    "0BSD",
     "Apache-2.0",
     "Apache-2.0 WITH LLVM-exception",
     "BSD-1-Clause",
@@ -33,7 +41,6 @@ allow = [
     "ISC",
     "MIT",
     "MIT-0",
-    "MPL-2.0",
     "Unicode-3.0",
     "Unlicense",
     "Zlib",
