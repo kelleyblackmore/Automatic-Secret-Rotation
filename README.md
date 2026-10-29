@@ -96,7 +96,7 @@ host          = "localhost"
 database      = "mydb"
 username      = "admin"
 password_path = "myapp/db-admin"    # secret path for admin creds
-ssl_mode      = "prefer"
+ssl_mode      = "verify-full"     # TLS required + verified; only "disable" is plaintext
 
 [targets.api]
 base_url       = "https://api.example.com"

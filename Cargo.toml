@@ -83,6 +83,9 @@ async-trait = "0.1"
 tokio-postgres = "0.7"
 native-tls = "0.2"
 postgres-native-tls = "0.5"
+# Client-side SCRAM-SHA-256 hashing so ALTER USER never carries a cleartext password
+postgres-protocol = "0.6"
+percent-encoding = "2"
 
 # Optional: Kubernetes / OpenShift backend
 kube = { version = "4", features = ["runtime", "derive"], optional = true }

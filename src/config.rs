@@ -223,7 +223,9 @@ pub struct PostgresTargetConfig {
     /// Direct password (not recommended, use password_path instead)
     #[serde(default)]
     pub password: Option<String>,
-    /// SSL mode: disable, allow, prefer, require, verify-ca, verify-full
+    /// SSL mode: `disable` (plaintext), `require` (TLS, certificate not verified),
+    /// or `prefer` / `allow` / `verify-ca` / `verify-full` (TLS required, certificate
+    /// verified). Only `disable` ever connects without TLS.
     #[serde(default = "default_ssl_mode")]
     pub ssl_mode: String,
 }

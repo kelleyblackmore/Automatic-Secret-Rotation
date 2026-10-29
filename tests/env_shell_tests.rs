@@ -13,7 +13,7 @@ fn test_update_new_variable() -> Result<()> {
     updater.update_env_var("MY_SECRET", "new_value")?;
 
     let content = fs::read_to_string(&bashrc)?;
-    assert!(content.contains("export MY_SECRET=\"new_value\""));
+    assert!(content.contains("export MY_SECRET='new_value'"));
 
     Ok(())
 }
@@ -28,7 +28,7 @@ fn test_update_existing_variable() -> Result<()> {
     updater.update_env_var("MY_SECRET", "new_value")?;
 
     let content = fs::read_to_string(&bashrc)?;
-    assert!(content.contains("export MY_SECRET=\"new_value\""));
+    assert!(content.contains("export MY_SECRET='new_value'"));
     assert!(!content.contains("old_value"));
 
     Ok(())
