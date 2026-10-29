@@ -46,6 +46,15 @@ jobs:
           fi
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
 
+      # The root package version is also in Cargo.lock, and every release build
+      # uses --locked. Fail here, before tagging, if the bump left it stale.
+      - name: Check Cargo.lock matches Cargo.toml
+        run: |
+          if ! cargo metadata --locked --format-version 1 > /dev/null; then
+            echo "::error::Cargo.lock is out of date. Run \`cargo update -p secret-rotator\` (or any cargo build) after bumping the version and commit Cargo.lock."
+            exit 1
+          fi
+
       - name: Check whether the tag exists
         id: exists
         env:
@@ -53,7 +62,6 @@ jobs:
           TAG: ${{ steps.version.outputs.tag }}
         run: |
           if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --silent 2>/dev/null; then
-            echo "$TAG already exists; nothing to release."
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
@@ -74,9 +82,25 @@ jobs:
             -f ref="refs/tags/$TAG" -f sha="$tag_sha" --silent
           echo "Tagged $GITHUB_SHA as $TAG"
 
-      - name: Start the release workflow
-        if: steps.exists.outputs.exists == 'false'
+      # Decided by whether each workflow has ever run for the tag, not by
+      # whether the tag exists: if a dispatch failed after the tag was created,
+      # the next run (or a re-run) starts it, and a release that already ran
+      # (dispatched or from a hand-pushed tag) is never started twice.
+      #
+      # Tags created with GITHUB_TOKEN don't fire tag-push triggers, so the
+      # integration tests are dispatched alongside the release.
+      - name: Start the release and integration tests
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.version.outputs.tag }}
-        run: gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"
+        run: |
+          for wf in release.yml integration-tests.yml; do
+            runs=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow "$wf" --branch "$TAG" \
+              --limit 1 --json databaseId --jq length)
+            if [ "$runs" -gt 0 ]; then
+              echo "$wf has already run for $TAG; not starting it again."
+            else
+              gh workflow run "$wf" --repo "$GITHUB_REPOSITORY" --ref "$TAG"
+              echo "Started $wf at $TAG"
+            fi
+          done
