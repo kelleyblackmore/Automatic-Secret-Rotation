@@ -58,7 +58,7 @@ jobs:
         run: cargo test --lib --no-fail-fast
 
       - name: Run integration tests
-        run: cargo test --test '*' --no-fail-fast || echo "No integration tests found"
+        run: cargo test --test '*' --no-fail-fast
 
       - name: Run all tests with coverage (Ubuntu only)
         if: matrix.os == 'ubuntu-latest' && matrix.rust == 'stable'
