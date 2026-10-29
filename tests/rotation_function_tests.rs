@@ -16,6 +16,7 @@ struct MockTarget {
     update_calls: Arc<Mutex<Vec<(String, String)>>>,
     verify_calls: Arc<Mutex<Vec<(String, String)>>>,
     fail_on_update: bool,
+    fail_on_verify: bool,
     needs_username: bool,
 }
 
@@ -25,6 +26,7 @@ impl MockTarget {
             update_calls: Arc::new(Mutex::new(Vec::new())),
             verify_calls: Arc::new(Mutex::new(Vec::new())),
             fail_on_update: false,
+            fail_on_verify: false,
             needs_username: false,
         }
     }
@@ -65,6 +67,9 @@ impl Target for MockTarget {
             .lock()
             .unwrap()
             .push((username.to_string(), password.to_string()));
+        if self.fail_on_verify {
+            anyhow::bail!("mock target verify failure");
+        }
         Ok(())
     }
 
@@ -456,5 +461,179 @@ async fn test_scan_non_empty_prefix_no_double_prefix() -> Result<()> {
         "path should not be double-prefixed: got {:?}",
         due[0]
     );
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Ordering and rollback
+// ---------------------------------------------------------------------------
+
+/// FileBackend whose secret writes always fail.
+struct WriteFailingBackend(FileBackend);
+
+#[async_trait::async_trait]
+impl SecretBackend for WriteFailingBackend {
+    async fn read_secret(&self, path: &str) -> Result<secret_rotator::backends::SecretData> {
+        self.0.read_secret(path).await
+    }
+    async fn write_secret(&self, _path: &str, _data: HashMap<String, String>) -> Result<()> {
+        anyhow::bail!("mock backend write failure")
+    }
+    async fn update_metadata(&self, path: &str, m: HashMap<String, String>) -> Result<()> {
+        self.0.update_metadata(path, m).await
+    }
+    async fn read_metadata(&self, path: &str) -> Result<HashMap<String, String>> {
+        self.0.read_metadata(path).await
+    }
+    async fn list_secrets(&self, path: &str) -> Result<Vec<String>> {
+        self.0.list_secrets(path).await
+    }
+    fn backend_type(&self) -> &'static str {
+        "write-failing"
+    }
+}
+
+async fn stored_password(backend: &FileBackend, path: &str) -> String {
+    backend.read_secret(path).await.unwrap().data["password"].clone()
+}
+
+#[tokio::test]
+async fn test_missing_username_changes_nothing() -> Result<()> {
+    let temp = TempDir::new()?;
+    let backend = FileBackend::new(temp.path())?;
+    write_secret(&backend, "app/db", "password", "old").await;
+
+    // A username-free target first must not let a username-requiring one
+    // fail after the backend has already been rotated.
+    let free = MockTarget::new();
+    let mut db = MockTarget::new();
+    db.needs_username = true;
+    let free_calls = Arc::clone(&free.update_calls);
+    let targets: Vec<Box<dyn Target>> = vec![Box::new(free), Box::new(db)];
+
+    let err = rotate_secret_with_targets(&backend, "app/db", 32, &targets, None)
+        .await
+        .unwrap_err();
+
+    assert!(format!("{err:#}").contains("username"));
+    assert_eq!(stored_password(&backend, "app/db").await, "old");
+    assert!(free_calls.lock().unwrap().is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_target_failure_leaves_backend_unchanged_and_rolls_back() -> Result<()> {
+    let temp = TempDir::new()?;
+    let backend = FileBackend::new(temp.path())?;
+    write_secret(&backend, "app/db", "password", "old").await;
+
+    let first = MockTarget::new();
+    let mut second = MockTarget::new();
+    second.fail_on_verify = true;
+    let first_calls = Arc::clone(&first.update_calls);
+    let second_calls = Arc::clone(&second.update_calls);
+    let targets: Vec<Box<dyn Target>> = vec![Box::new(first), Box::new(second)];
+
+    let err = rotate_secret_with_targets(&backend, "app/db", 32, &targets, None)
+        .await
+        .unwrap_err();
+    let msg = format!("{err:#}");
+
+    assert_eq!(stored_password(&backend, "app/db").await, "old");
+    // Both targets got the new value, then were set back to "old".
+    assert_eq!(first_calls.lock().unwrap().last().unwrap().1, "old");
+    assert_eq!(second_calls.lock().unwrap().last().unwrap().1, "old");
+    assert!(msg.contains("backend was not changed"), "{msg}");
+    assert!(msg.contains("Rolled back"), "{msg}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_backend_write_failure_rolls_back_targets() -> Result<()> {
+    let temp = TempDir::new()?;
+    let inner = FileBackend::new(temp.path())?;
+    write_secret(&inner, "app/db", "password", "old").await;
+    let backend = WriteFailingBackend(inner);
+
+    let target = MockTarget::new();
+    let calls = Arc::clone(&target.update_calls);
+    let targets: Vec<Box<dyn Target>> = vec![Box::new(target)];
+
+    let err = rotate_secret_with_targets(&backend, "app/db", 32, &targets, None)
+        .await
+        .unwrap_err();
+    let msg = format!("{err:#}");
+
+    let calls = calls.lock().unwrap();
+    assert_eq!(calls.len(), 2, "update to new value, then rollback");
+    assert_eq!(calls[1].1, "old");
+    assert!(
+        !msg.contains(&calls[0].1),
+        "error must not contain the new secret"
+    );
+    assert!(msg.contains("Rolled back"), "{msg}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_target_whose_update_failed_is_not_rolled_back() -> Result<()> {
+    let temp = TempDir::new()?;
+    let backend = FileBackend::new(temp.path())?;
+    write_secret(&backend, "app/db", "password", "old").await;
+
+    let mut target = MockTarget::new();
+    target.fail_on_update = true;
+    let targets: Vec<Box<dyn Target>> = vec![Box::new(target)];
+
+    let err = rotate_secret_with_targets(&backend, "app/db", 32, &targets, None)
+        .await
+        .unwrap_err();
+    let msg = format!("{err:#}");
+
+    assert!(msg.contains("No targets were changed"), "{msg}");
+    assert!(!msg.contains("ROLLBACK FAILED"), "{msg}");
+    assert_eq!(stored_password(&backend, "app/db").await, "old");
+    Ok(())
+}
+
+/// Accepts the new password, then refuses every later update.
+struct OneShotTarget(Mutex<u32>);
+
+#[async_trait::async_trait]
+impl Target for OneShotTarget {
+    async fn update_password(&self, _u: &str, _p: &str) -> Result<()> {
+        let mut n = self.0.lock().unwrap();
+        *n += 1;
+        if *n > 1 {
+            anyhow::bail!("mock rollback failure");
+        }
+        Ok(())
+    }
+    async fn verify_connection(&self, _u: &str, _p: &str, _e: Option<&str>) -> Result<()> {
+        anyhow::bail!("mock verify failure")
+    }
+    fn target_type(&self) -> &'static str {
+        "one-shot"
+    }
+    fn requires_username(&self) -> bool {
+        false
+    }
+}
+
+#[tokio::test]
+async fn test_failed_rollback_is_reported() -> Result<()> {
+    let temp = TempDir::new()?;
+    let backend = FileBackend::new(temp.path())?;
+    write_secret(&backend, "app/db", "password", "old").await;
+
+    let targets: Vec<Box<dyn Target>> = vec![Box::new(OneShotTarget(Mutex::new(0)))];
+
+    let err = rotate_secret_with_targets(&backend, "app/db", 32, &targets, None)
+        .await
+        .unwrap_err();
+
+    let msg = format!("{err:#}");
+    assert!(msg.contains("ROLLBACK FAILED"), "{msg}");
+    assert_eq!(stored_password(&backend, "app/db").await, "old");
     Ok(())
 }

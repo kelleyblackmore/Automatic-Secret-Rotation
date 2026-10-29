@@ -86,38 +86,7 @@ pub async fn rotate_secret_with_targets(
     target_username: Option<&str>,
 ) -> Result<String> {
     let target_refs: Vec<&dyn Target> = targets.iter().map(|t| t.as_ref()).collect();
-    let first = target_refs.first().copied();
-    let rest = if target_refs.len() > 1 {
-        &target_refs[1..]
-    } else {
-        &[]
-    };
-
-    // Rotate using the first target (generates the new secret and verifies)
-    let new_secret =
-        rotate_secret_with_target(backend, path, secret_length, first, target_username).await?;
-
-    // Apply the same new secret to remaining targets
-    for &extra_target in rest {
-        if extra_target.requires_username() && target_username.is_none() {
-            anyhow::bail!(
-                "{} target requires a username — pass --target-username or set \
-                 target_username in the secret metadata",
-                extra_target.target_type()
-            );
-        }
-        let username = target_username.unwrap_or("");
-        extra_target
-            .update_password(username, &new_secret)
-            .await
-            .with_context(|| format!("Failed to update {} target", extra_target.target_type()))?;
-        extra_target
-            .verify_connection(username, &new_secret, None)
-            .await
-            .with_context(|| format!("Failed to verify {} target", extra_target.target_type()))?;
-    }
-
-    Ok(new_secret)
+    rotate(backend, path, secret_length, &target_refs, target_username).await
 }
 
 /// Rotate a secret and optionally update target password (database, API, etc.)
@@ -128,7 +97,41 @@ pub async fn rotate_secret_with_target(
     target: Option<&dyn Target>,
     target_username: Option<&str>,
 ) -> Result<String> {
+    let targets: Vec<&dyn Target> = target.into_iter().collect();
+    rotate(backend, path, secret_length, &targets, target_username).await
+}
+
+/// Rotate the secret at `path` and push the new value to every target.
+///
+/// Order matters, because apps read the password from the backend:
+///
+/// 1. Check every precondition before anything changes.
+/// 2. Update and verify each target in turn.
+/// 3. Only then write the backend.
+///
+/// If a target or the backend write fails, every target that may already
+/// hold the new value is set back to the old one, so the backend and the
+/// targets keep agreeing. Errors never include either secret value: they are
+/// recorded in the audit log and sent to webhooks.
+async fn rotate(
+    backend: &dyn SecretBackend,
+    path: &str,
+    secret_length: usize,
+    targets: &[&dyn Target],
+    target_username: Option<&str>,
+) -> Result<String> {
     info!("Rotating secret at {} ({})", path, backend.backend_type());
+
+    if target_username.is_none() {
+        if let Some(target) = targets.iter().find(|t| t.requires_username()) {
+            anyhow::bail!(
+                "{} target requires a username — pass --target-username or set \
+                 target_username in the secret metadata",
+                target.target_type()
+            );
+        }
+    }
+    let username = target_username.unwrap_or("");
 
     // Read current secret
     let current = backend
@@ -136,13 +139,9 @@ pub async fn rotate_secret_with_target(
         .await
         .context("Failed to read current secret")?;
 
-    // Generate new secret
-    let new_secret = generate_secret(secret_length);
-
-    // Update secret data
-    let mut new_data = current.data.clone();
     // Determine which key to update - look for common key names
-    let key_to_update = new_data
+    let key_to_update = current
+        .data
         .keys()
         .find(|k| {
             let lower = k.to_lowercase();
@@ -153,27 +152,11 @@ pub async fn rotate_secret_with_target(
         })
         .cloned()
         .unwrap_or_else(|| "secret".to_string());
+    let old_secret = current.data.get(&key_to_update).cloned();
 
-    new_data.insert(key_to_update.clone(), new_secret.clone());
+    let new_secret = generate_secret(secret_length);
 
-    // Write updated secret
-    backend
-        .write_secret(path, new_data)
-        .await
-        .context("Failed to write rotated secret")?;
-
-    // Update target if configured.
-    // Username-free targets (GitLab, GitHub) are called with an empty username;
-    // targets that require a username (Postgres, MySQL) bail if none is provided.
-    if let Some(target) = target {
-        if target.requires_username() && target_username.is_none() {
-            anyhow::bail!(
-                "{} target requires a username — pass --target-username or set \
-                 target_username in the secret metadata",
-                target.target_type()
-            );
-        }
-        let username = target_username.unwrap_or("");
+    for (i, target) in targets.iter().enumerate() {
         info!(
             "Updating {} target{}",
             target.target_type(),
@@ -183,15 +166,40 @@ pub async fn rotate_secret_with_target(
                 format!(" for user: {}", username)
             }
         );
-        target
+        let failure = match target
             .update_password(username, &new_secret)
             .await
-            .with_context(|| format!("Failed to update {} target", target.target_type()))?;
+            .with_context(|| format!("Failed to update {} target", target.target_type()))
+        {
+            // The update never applied, so this target still has the old value.
+            Err(e) => Some((e, i)),
+            Ok(()) => target
+                .verify_connection(username, &new_secret, None)
+                .await
+                .with_context(|| format!("Failed to verify new {} value", target.target_type()))
+                .err()
+                // The update applied; only verification failed.
+                .map(|e| (e, i + 1)),
+        };
 
-        target
-            .verify_connection(username, &new_secret, None)
-            .await
-            .with_context(|| format!("Failed to verify new {} value", target.target_type()))?;
+        if let Some((e, changed)) = failure {
+            let rollback = roll_back(&targets[..changed], username, old_secret.as_deref()).await;
+            return Err(e.context(format!(
+                "Rotation of {} aborted; the backend was not changed. {}",
+                path, rollback
+            )));
+        }
+    }
+
+    let mut new_data = current.data.clone();
+    new_data.insert(key_to_update, new_secret.clone());
+
+    if let Err(e) = backend.write_secret(path, new_data).await {
+        let rollback = roll_back(targets, username, old_secret.as_deref()).await;
+        return Err(e.context(format!(
+            "Failed to write rotated secret to {}. {}",
+            path, rollback
+        )));
     }
 
     // Update metadata with rotation timestamp
@@ -212,10 +220,47 @@ pub async fn rotate_secret_with_target(
     backend
         .update_metadata(path, metadata)
         .await
-        .context("Failed to update metadata")?;
+        .context("Secret rotated, but failed to update rotation metadata")?;
 
     info!("Successfully rotated secret at {}", path);
     Ok(new_secret)
+}
+
+/// Set `targets` back to `old_secret` after a failed rotation. Returns a
+/// sentence describing the outcome for the caller's error message.
+async fn roll_back(targets: &[&dyn Target], username: &str, old_secret: Option<&str>) -> String {
+    if targets.is_empty() {
+        return "No targets were changed.".to_string();
+    }
+    let names: Vec<&str> = targets.iter().map(|t| t.target_type()).collect();
+    let Some(old_secret) = old_secret else {
+        return format!(
+            "The secret had no previous value, so these targets could not be rolled back \
+             and may hold an unrecorded value: {}.",
+            names.join(", ")
+        );
+    };
+
+    let mut failed = Vec::new();
+    for target in targets {
+        if let Err(e) = target.update_password(username, old_secret).await {
+            warn!(
+                "Rollback of {} target failed: {:#}",
+                target.target_type(),
+                e
+            );
+            failed.push(format!("{} ({:#})", target.target_type(), e));
+        }
+    }
+    if failed.is_empty() {
+        format!("Rolled back to the previous value: {}.", names.join(", "))
+    } else {
+        format!(
+            "ROLLBACK FAILED for: {}. Those targets may hold a password that is not in \
+             the backend; reset them manually.",
+            failed.join("; ")
+        )
+    }
 }
 
 /// Flag a secret for automatic rotation

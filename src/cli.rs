@@ -366,14 +366,11 @@ pub async fn execute(cli: Cli) -> Result<()> {
 
                 let start = std::time::Instant::now();
 
-                // Call targets if update_target is set.
-                // Username-free targets (GitLab, GitHub) work with target_username = None.
-                // Username-required targets (Postgres, MySQL) need target_username from metadata.
-                let has_username_free_targets = targets.iter().any(|t| !t.requires_username());
-                let result = if update_target
-                    && (!targets.is_empty())
-                    && (target_username.is_some() || has_username_free_targets)
-                {
+                // With --update-target, always go through the targets: falling back
+                // to a backend-only rotation would leave the targets on the old
+                // password. A missing target_username for a target that needs one
+                // fails before anything is changed.
+                let result = if update_target && !targets.is_empty() {
                     rotation::rotate_secret_with_targets(
                         backend.as_ref(),
                         secret_path,
