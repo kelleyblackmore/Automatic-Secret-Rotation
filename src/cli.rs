@@ -522,6 +522,7 @@ pub async fn execute(cli: Cli) -> Result<()> {
             length,
         } => {
             let password_length = length.unwrap_or(config.rotation.secret_length);
+            rotation::check_secret_length(password_length)?;
             let new_password = rotation::generate_secret(password_length);
 
             let mut secret_data = std::collections::HashMap::new();
