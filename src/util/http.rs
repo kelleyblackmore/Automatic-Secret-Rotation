@@ -31,8 +31,11 @@ pub const ALLOW_INSECURE_HTTP_ENV: &str = "ASR_ALLOW_INSECURE_HTTP";
 /// network, unless `ASR_ALLOW_INSECURE_HTTP=1` is set, which allows it with a
 /// warning. `what` names the endpoint and what it carries, for the error.
 pub fn require_secure_url(url: &str, what: &str) -> Result<()> {
+    // Never echo `url` itself: webhook URLs often carry their token in the
+    // path, and any URL may hold user:password. Messages show only the origin.
     let parsed =
-        reqwest::Url::parse(url).with_context(|| format!("Invalid {} URL: {:?}", what, url))?;
+        reqwest::Url::parse(url).map_err(|e| anyhow::anyhow!("Invalid {} URL: {}", what, e))?;
+    let origin = parsed.origin().ascii_serialization();
     match parsed.scheme() {
         "https" => Ok(()),
         "http" if is_loopback(&parsed) => Ok(()),
@@ -41,7 +44,7 @@ pub fn require_secure_url(url: &str, what: &str) -> Result<()> {
                 "{} uses plain http:// ({}); credentials and secrets are sent unencrypted \
                  because {}=1 is set",
                 what,
-                url,
+                origin,
                 ALLOW_INSECURE_HTTP_ENV
             );
             Ok(())
@@ -51,10 +54,10 @@ pub fn require_secure_url(url: &str, what: &str) -> Result<()> {
              unencrypted. Use https://, or set {}=1 if this endpoint is on a trusted \
              private network. http:// is always allowed for localhost.",
             what,
-            url,
+            origin,
             ALLOW_INSECURE_HTTP_ENV
         ),
-        other => anyhow::bail!("{} URL must use https:// (got {}://): {}", what, other, url),
+        other => anyhow::bail!("{} URL must use https:// (got {}://)", what, other),
     }
 }
 
@@ -99,6 +102,25 @@ mod tests {
             let err = require_secure_url(bad, "Vault").unwrap_err().to_string();
             assert!(err.contains("unencrypted"), "{bad}: {err}");
         }
+    }
+
+    #[test]
+    fn errors_never_contain_the_path_query_or_credentials() {
+        for url in [
+            "http://hooks.internal/services/T000/B000/s3cr3tT0ken",
+            "http://user:p4ssw0rd@vault.internal:8200/",
+            "http://vault.internal/?token=s3cr3tT0ken",
+            "ftp://user:p4ssw0rd@vault.internal/s3cr3tT0ken",
+            "not a url s3cr3tT0ken",
+        ] {
+            let err = format!("{:#}", require_secure_url(url, "Webhook").unwrap_err());
+            assert!(
+                !err.contains("s3cr3tT0ken") && !err.contains("p4ssw0rd"),
+                "{err}"
+            );
+        }
+        let err = require_secure_url("http://hooks.internal/x", "Webhook").unwrap_err();
+        assert!(err.to_string().contains("http://hooks.internal"), "{err}");
     }
 
     #[test]
