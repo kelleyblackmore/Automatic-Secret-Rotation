@@ -717,8 +717,19 @@ secret_length = 32
 # events = ["rotate", "flag", "scan"]
 "#;
 
-        fs::write(path.as_ref(), sample)
-            .with_context(|| format!("Failed to write sample config to {:?}", path.as_ref()))?;
+        // Owner-only: this is the file people paste Vault tokens and admin
+        // passwords into.
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+        std::io::Write::write_all(
+            &mut options
+                .open(path.as_ref())
+                .with_context(|| format!("Failed to create sample config {:?}", path.as_ref()))?,
+            sample.as_bytes(),
+        )
+        .with_context(|| format!("Failed to write sample config to {:?}", path.as_ref()))?;
 
         Ok(())
     }

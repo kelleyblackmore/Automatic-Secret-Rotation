@@ -122,7 +122,12 @@ impl AuditLogger {
         if let Some(parent) = Path::new(path).parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+        let mut options = OpenOptions::new();
+        options.create(true).append(true);
+        // Owner-only when created: the log names every rotated secret path.
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+        let mut file = options.open(path)?;
         writeln!(file, "{}", line)
     }
 }

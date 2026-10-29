@@ -52,6 +52,22 @@ pub fn needs_rotation(
     now >= rotation_due
 }
 
+/// Shortest secret `asr` will generate. A misconfigured length (0 sets an
+/// empty password) must fail instead of weakening the credential.
+pub const MIN_SECRET_LENGTH: usize = 16;
+
+/// Reject secret lengths below [`MIN_SECRET_LENGTH`].
+pub fn check_secret_length(length: usize) -> Result<()> {
+    if length < MIN_SECRET_LENGTH {
+        anyhow::bail!(
+            "secret_length is {}; it must be at least {}",
+            length,
+            MIN_SECRET_LENGTH
+        );
+    }
+    Ok(())
+}
+
 /// Pick the field of a multi-field secret that holds the credential.
 ///
 /// Secrets are `HashMap`s, whose iteration order changes between runs, so
@@ -142,6 +158,7 @@ async fn rotate(
     target_username: Option<&str>,
 ) -> Result<String> {
     info!("Rotating secret at {} ({})", path, backend.backend_type());
+    check_secret_length(secret_length)?;
 
     if target_username.is_none() {
         if let Some(target) = targets.iter().find(|t| t.requires_username()) {
@@ -366,6 +383,13 @@ mod tests {
             select_secret_key(&data(&["DB_PASSWORD", "admin_password"])).as_deref(),
             Some("DB_PASSWORD")
         );
+    }
+
+    #[test]
+    fn check_secret_length_rejects_short_secrets() {
+        assert!(super::check_secret_length(0).is_err());
+        assert!(super::check_secret_length(15).is_err());
+        assert!(super::check_secret_length(16).is_ok());
     }
 
     #[test]
