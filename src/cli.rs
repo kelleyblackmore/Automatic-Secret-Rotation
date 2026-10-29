@@ -606,6 +606,24 @@ pub async fn execute(cli: Cli) -> Result<()> {
 // Target construction helpers
 // ---------------------------------------------------------------------------
 
+/// Read the credential field of a stored secret, chosen the same way rotation
+/// chooses which field to rotate.
+fn credential_value(
+    data: &std::collections::HashMap<String, String>,
+    path: &str,
+    what: &str,
+) -> Result<String> {
+    let key = rotation::select_secret_key(data).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Cannot tell which field of the secret at {} holds the {}: name it \
+             password, secret, token or key, or store only that field",
+            path,
+            what
+        )
+    })?;
+    Ok(data[&key].clone())
+}
+
 async fn resolve_password(
     backend: &dyn crate::backends::SecretBackend,
     password_path: Option<&str>,
@@ -617,12 +635,7 @@ async fn resolve_password(
             .read_secret(path)
             .await
             .context("Failed to read admin password from backend")?;
-        secret
-            .data
-            .values()
-            .next()
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("No password found in secret at {}", path))
+        credential_value(&secret.data, path, "password")
     } else if let Some(pw) = password {
         Ok(pw.to_string())
     } else {
@@ -753,12 +766,7 @@ async fn create_gitlab_target(
             .read_secret(path)
             .await
             .context("Failed to read GitLab token from backend")?;
-        let tok = secret
-            .data
-            .values()
-            .next()
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("No token found in secret at {}", path))?;
+        let tok = credential_value(&secret.data, path, "token")?;
         let mut c = config.clone();
         c.token = Some(tok);
         std::borrow::Cow::Owned(c)
@@ -793,12 +801,7 @@ async fn create_github_target(
             .read_secret(path)
             .await
             .context("Failed to read GitHub token from backend")?;
-        let tok = secret
-            .data
-            .values()
-            .next()
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("No token found in secret at {}", path))?;
+        let tok = credential_value(&secret.data, path, "token")?;
         let mut c = config.clone();
         c.token = Some(tok);
         std::borrow::Cow::Owned(c)
