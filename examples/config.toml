@@ -33,5 +33,7 @@ secret_length = 32
 # password_path = "admin/postgres-password"
 # # Or provide password directly (not recommended for production)
 # # password = "your-admin-password"
-# # SSL mode: disable, allow, prefer, require, verify-ca, verify-full
+# # SSL mode: disable (plaintext), require (TLS, certificate not verified),
+# # or prefer / allow / verify-ca / verify-full (TLS required, certificate verified).
+# # There is no plaintext fallback: only "disable" connects without TLS.
 # ssl_mode = "prefer"

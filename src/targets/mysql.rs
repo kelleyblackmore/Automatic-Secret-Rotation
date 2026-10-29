@@ -66,12 +66,12 @@ impl Target for MysqlTarget {
             .await
             .context("Failed to get MySQL connection for password update")?;
 
-        let escaped_user = username.replace('\'', "\\'");
-        let escaped_pass = new_password.replace('\'', "\\'");
+        let escaped_user = quote_string_literal(username).context("Invalid MySQL username")?;
+        let escaped_pass = quote_string_literal(new_password).context("Invalid MySQL password")?;
 
         // ALTER USER is supported in MySQL 5.7.6+/MariaDB 10.2+
         let query = format!(
-            "ALTER USER '{}'@'%' IDENTIFIED BY '{}'",
+            "ALTER USER {}@'%' IDENTIFIED BY {}",
             escaped_user, escaped_pass
         );
         conn.query_drop(&query)
@@ -80,7 +80,7 @@ impl Target for MysqlTarget {
 
         // Also attempt localhost variant (ignore error if user doesn't exist for localhost)
         let query_local = format!(
-            "ALTER USER '{}'@'localhost' IDENTIFIED BY '{}'",
+            "ALTER USER {}@'localhost' IDENTIFIED BY {}",
             escaped_user, escaped_pass
         );
         let _ = conn.query_drop(&query_local).await;
@@ -125,6 +125,22 @@ impl Target for MysqlTarget {
     }
 }
 
+/// Quote `value` as a MySQL string literal.
+///
+/// The username can come from backend metadata, which may be writable by
+/// people who are not MySQL admins, and the statement runs as the admin with
+/// multi-statements enabled, so this must not be escapable. Doubling `'` is
+/// correct whether or not `NO_BACKSLASH_ESCAPES` is set; backslashes and NUL
+/// mean different things in the two modes, so they are rejected rather than
+/// escaped. Generated passwords never contain either.
+#[cfg(feature = "mysql")]
+fn quote_string_literal(value: &str) -> Result<String> {
+    if value.contains(['\\', '\0']) {
+        anyhow::bail!("value contains a backslash or NUL character");
+    }
+    Ok(format!("'{}'", value.replace('\'', "''")))
+}
+
 /// Build mysql_async Opts with TLS configured from ssl_mode.
 ///
 /// ssl_mode mapping:
@@ -159,4 +175,34 @@ fn build_opts(
         .ssl_opts(ssl_opts);
 
     Ok(Opts::from(opts))
+}
+
+#[cfg(all(test, feature = "mysql"))]
+mod tests {
+    use super::quote_string_literal;
+
+    #[test]
+    fn quote_string_literal_doubles_single_quotes() {
+        assert_eq!(quote_string_literal("app").unwrap(), "'app'");
+        assert_eq!(quote_string_literal("o'neil").unwrap(), "'o''neil'");
+        assert_eq!(
+            quote_string_literal("a'; DROP USER 'root'@'%'; -- ").unwrap(),
+            "'a''; DROP USER ''root''@''%''; -- '"
+        );
+    }
+
+    #[test]
+    fn quote_string_literal_rejects_backslash_and_nul() {
+        // The old escaping turned `a\'` into `a\\'`, which closes the literal.
+        assert!(quote_string_literal("a\\'; DROP USER 'root'@'%'; -- ").is_err());
+        assert!(quote_string_literal("a\0b").is_err());
+    }
+
+    #[test]
+    fn quote_string_literal_accepts_generated_passwords() {
+        for _ in 0..200 {
+            let pw = crate::rotation::generate_secret(64);
+            assert!(quote_string_literal(&pw).is_ok(), "{pw}");
+        }
+    }
 }

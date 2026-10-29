@@ -345,7 +345,7 @@ pub async fn execute(cli: Cli) -> Result<()> {
                 if dry_run {
                     println!("[DRY RUN] Would rotate: {}", secret_path);
                     if update_env {
-                        let env_var = secret_path.replace('/', "_").to_uppercase();
+                        let env_var = env_updater::env_var_name_for_path(secret_path);
                         println!("  [DRY RUN] Would update env var: {}", env_var);
                     }
                     if update_target {
@@ -419,7 +419,7 @@ pub async fn execute(cli: Cli) -> Result<()> {
                         }
 
                         if let Some(ref updater) = env_updater {
-                            let env_var = secret_path.replace('/', "_").to_uppercase();
+                            let env_var = env_updater::env_var_name_for_path(secret_path);
                             match updater.update_env_var(&env_var, &new_value) {
                                 Ok(_) => println!("  Updated env var: {}", env_var),
                                 Err(e) => {

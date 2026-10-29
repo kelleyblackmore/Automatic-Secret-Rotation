@@ -5,6 +5,14 @@ use std::sync::Arc;
 use tracing::{debug, info};
 
 use crate::config::ApiTargetConfig;
+use percent_encoding::{utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
+
+/// Everything except RFC 3986 unreserved characters is encoded.
+const PATH_SEGMENT: &AsciiSet = &NON_ALPHANUMERIC
+    .remove(b'-')
+    .remove(b'.')
+    .remove(b'_')
+    .remove(b'~');
 use crate::targets::target::Target;
 
 /// API-based target for password updates via REST API
@@ -26,19 +34,27 @@ impl ApiTarget {
         })
     }
 
-    /// Build the full URL for password update endpoint
-    pub fn build_url(&self, username: &str) -> String {
-        // Replace {username} placeholder if present
-        let url = self.config.endpoint.replace("{username}", username);
+    /// Build the full URL for password update endpoint.
+    ///
+    /// The username can come from backend metadata, so it is percent-encoded
+    /// as a single path segment: a value like `../admin` must not move the
+    /// request (which carries the auth header and new password) to another
+    /// path on the host.
+    pub fn build_url(&self, username: &str) -> Result<String> {
+        if username == "." || username == ".." {
+            anyhow::bail!("Invalid API target username: {:?}", username);
+        }
+        let encoded = utf8_percent_encode(username, PATH_SEGMENT).to_string();
+        let url = self.config.endpoint.replace("{username}", &encoded);
 
         if url.starts_with("http://") || url.starts_with("https://") {
-            url
+            Ok(url)
         } else {
-            format!(
+            Ok(format!(
                 "{}/{}",
                 self.config.base_url.trim_end_matches('/'),
                 url.trim_start_matches('/')
-            )
+            ))
         }
     }
 }
@@ -48,7 +64,7 @@ impl Target for ApiTarget {
     async fn update_password(&self, username: &str, new_password: &str) -> Result<()> {
         info!("Updating password via API for user: {}", username);
 
-        let url = self.build_url(username);
+        let url = self.build_url(username)?;
         debug!("Calling API endpoint: {}", url);
 
         // Build request body based on config

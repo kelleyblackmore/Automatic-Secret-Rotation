@@ -62,7 +62,7 @@ impl PostgresTarget {
             Self::quote_conn_value(username),
             Self::quote_conn_value(password),
             Self::quote_conn_value(database),
-            ssl_mode,
+            wire_ssl_mode(ssl_mode),
         )
     }
 
@@ -86,15 +86,21 @@ impl Target for PostgresTarget {
     async fn update_password(&self, username: &str, new_password: &str) -> Result<()> {
         info!("Updating password for PostgreSQL user: {}", username);
 
-        let escaped_password = new_password.replace('\'', "''");
-
+        // Send a SCRAM-SHA-256 verifier, never the cleartext password: the query
+        // text is logged by tokio-postgres at debug level and by the server when
+        // log_statement is ddl/all. The verifier contains no characters that need
+        // escaping.
+        let verifier = postgres_protocol::password::scram_sha_256(new_password.as_bytes());
         let query = format!(
             "ALTER USER {} WITH PASSWORD '{}'",
             Self::quote_identifier(username),
-            escaped_password
+            verifier
         );
 
-        debug!("Executing: ALTER USER {} WITH PASSWORD '***'", username);
+        debug!(
+            "Executing: ALTER USER {} WITH PASSWORD '<scram verifier>'",
+            username
+        );
 
         self.admin_client
             .execute(&query, &[])
@@ -139,12 +145,24 @@ impl Target for PostgresTarget {
     }
 }
 
+/// The `sslmode` sent to tokio-postgres. Every mode except `disable` requires
+/// TLS: tokio-postgres's `prefer` silently falls back to plaintext when the
+/// server (or anyone on the path) declines TLS, which would expose the admin
+/// and new passwords. Certificate verification is decided separately by
+/// [`parse_ssl_mode`] in [`pg_connect`].
+fn wire_ssl_mode(ssl_mode: &str) -> &'static str {
+    match parse_ssl_mode(ssl_mode) {
+        TlsMode::Disabled => "disable",
+        TlsMode::RequireNoVerify | TlsMode::VerifyFull => "require",
+    }
+}
+
 /// Connect to PostgreSQL using the TLS mode from config.
 ///
 /// ssl_mode mapping:
 ///   disable                      → NoTls (no encryption)
 ///   require                      → TLS required, cert/hostname verification skipped
-///   prefer / allow / verify-ca / verify-full (default) → TLS with full cert verification
+///   prefer / allow / verify-ca / verify-full (default) → TLS required, full cert verification
 async fn pg_connect(connection_string: &str, ssl_mode: &str) -> Result<Client> {
     if matches!(parse_ssl_mode(ssl_mode), TlsMode::Disabled) {
         let (client, conn) = tokio_postgres::connect(connection_string, tokio_postgres::NoTls)
