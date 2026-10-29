@@ -16,6 +16,13 @@ set -e
 #   ASR_BINARY_NAME=custom-name ./install.sh    # Custom binary name
 #   ASR_BUILD_FROM_SOURCE=1 ./install.sh        # Force build from source (skip download)
 #   ASR_VERSION=1.2.3 ./install.sh              # Install a specific version (defaults to latest)
+#   ASR_SKIP_VERIFY=1 ./install.sh              # Skip the SHA256SUMS check (only for releases
+#                                               # older than 0.7.0, which don't publish one)
+#
+# Every downloaded binary is checked against the release's SHA256SUMS before it
+# is installed; a mismatch aborts the install. To also check the binary was
+# built by this repo's release workflow:
+#   gh attestation verify ~/.local/bin/asr --repo kelleyblackmore/Automatic-Secret-Rotation
 
 # Print a friendly heading
 echo "Installing Automatic Secret Rotation..."
@@ -64,8 +71,18 @@ PLATFORM=$(detect_platform)
 BIN_DIR="${HOME}/.local/bin"
 mkdir -p "$BIN_DIR"
 
-# Try to download a pre-built binary from GitHub releases. Falls back to
-# building from source if the download fails.
+# Print the SHA-256 of a file (Linux: sha256sum, macOS: shasum).
+sha256_of() {
+    if command -v sha256sum &> /dev/null; then
+        sha256sum "$1" | awk '{print $1}'
+    else
+        shasum -a 256 "$1" | awk '{print $1}'
+    fi
+}
+
+# Try to download a pre-built binary from GitHub releases. Returns 1 if no
+# binary is available (caller builds from source). Exits if the binary fails
+# verification: a bad download must never fall through to an install.
 download_binary() {
     local platform=$1
     local repo="kelleyblackmore/Automatic-Secret-Rotation"
@@ -74,29 +91,63 @@ download_binary() {
     
     # Determine asset name (e.g., asr-darwin-arm64, asr-linux-x86_64)
     local asset_name="asr-${platform}"
-    local download_url
+    local download_url base_url
 
     # If ASR_VERSION is set, use a specific version tag (prepend 'v' if missing).
     if [ -n "$ASR_VERSION" ]; then
-        if [[ "$ASR_VERSION" == v* ]]; then
-            download_url="https://github.com/$repo/releases/download/${ASR_VERSION}/${asset_name}"
-        else
-            download_url="https://github.com/$repo/releases/download/v${ASR_VERSION}/${asset_name}"
-        fi
+        base_url="https://github.com/$repo/releases/download/v${ASR_VERSION#v}"
     else
         # Otherwise use the latest release download URL. See
         # https://josh-ops.com/posts/github-download-latest-release/ for details.
-        download_url="https://github.com/$repo/releases/latest/download/${asset_name}"
+        base_url="https://github.com/$repo/releases/latest/download"
     fi
+    download_url="$base_url/$asset_name"
+
+    local tmp
+    tmp=$(mktemp -d)
+    # shellcheck disable=SC2064 # expand $tmp now; it is local to this function
+    trap "rm -rf '$tmp'" EXIT
 
     echo "Downloading $asset_name from $download_url..."
-    if curl -fsSL -o "$BIN_DIR/$BINARY_NAME" -L "$download_url"; then
-        chmod +x "$BIN_DIR/$BINARY_NAME"
-        echo "Downloaded pre-built binary successfully!"
-        return 0
-    else
+    if ! curl -fsSL -o "$tmp/$asset_name" "$download_url"; then
         echo "Pre-built binary not available for $platform, will build from source"
         return 1
+    fi
+
+    if [ "${ASR_SKIP_VERIFY:-0}" = "1" ]; then
+        echo "WARNING: ASR_SKIP_VERIFY=1 set, installing without checksum verification"
+    else
+        if ! curl -fsSL -o "$tmp/SHA256SUMS" "$base_url/SHA256SUMS"; then
+            echo "ERROR: could not download SHA256SUMS for this release, refusing to install." >&2
+            echo "       Releases before 0.7.0 don't publish one; set ASR_SKIP_VERIFY=1 to install anyway." >&2
+            exit 1
+        fi
+        local expected actual
+        expected=$(awk -v f="$asset_name" '$2 == f || $2 == "*" f {print $1}' "$tmp/SHA256SUMS")
+        actual=$(sha256_of "$tmp/$asset_name")
+        if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
+            echo "ERROR: checksum verification failed for $asset_name, refusing to install." >&2
+            echo "       expected: ${expected:-<not listed in SHA256SUMS>}" >&2
+            echo "       actual:   $actual" >&2
+            exit 1
+        fi
+        echo "Checksum verified (sha256 $actual)"
+    fi
+
+    chmod +x "$tmp/$asset_name"
+    mv "$tmp/$asset_name" "$BIN_DIR/$BINARY_NAME"
+    echo "Downloaded pre-built binary successfully!"
+    return 0
+}
+
+# The release tag to build from source: ASR_VERSION if set, else the newest
+# v* tag. Building a tag, not main HEAD, gives the same code as the release.
+release_tag() {
+    if [ -n "$ASR_VERSION" ]; then
+        echo "v${ASR_VERSION#v}"
+    else
+        git ls-remote --tags --refs https://github.com/kelleyblackmore/Automatic-Secret-Rotation.git 'v*' \
+            | sed 's#.*refs/tags/##' | sort -V | tail -1
     fi
 }
 
@@ -126,21 +177,27 @@ if [ "$download_success" != "true" ]; then
     RUST_VERSION=$(rustc --version | awk '{print $2}')
     echo "Using Rust version: $RUST_VERSION"
 
-    # Clone or update the repository
+    # Clone or update the repository, then check out the release tag
+    TAG=$(release_tag)
+    if [ -z "$TAG" ]; then
+        echo "ERROR: could not determine a release tag to build" >&2
+        exit 1
+    fi
     INSTALL_DIR="${ASR_INSTALL_DIR:-$HOME/.asr}"
     if [ -d "$INSTALL_DIR" ]; then
         echo "Updating existing installation at $INSTALL_DIR..."
         cd "$INSTALL_DIR"
-        git pull
+        git fetch --tags
     else
         echo "Cloning repository to $INSTALL_DIR..."
         git clone https://github.com/kelleyblackmore/Automatic-Secret-Rotation.git "$INSTALL_DIR"
         cd "$INSTALL_DIR"
     fi
+    git -c advice.detachedHead=false checkout "$TAG"
 
     # Build and install
-    echo "Building from source..."
-    cargo build --release
+    echo "Building $TAG from source..."
+    cargo build --release --locked
 
     # Install to user bin with the chosen name
     cp target/release/asr "$BIN_DIR/$BINARY_NAME"

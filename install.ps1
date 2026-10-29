@@ -5,6 +5,11 @@
 # Environment variable overrides:
 #   $env:ASR_VERSION = "0.5.0"   # Install a specific version (default: latest)
 #   $env:ASR_INSTALL_DIR = "C:\custom\path"  # Custom install directory
+#   $env:ASR_SKIP_VERIFY = "1"   # Skip the SHA256SUMS check (only for releases
+#                                # older than 0.7.0, which don't publish one)
+#
+# The download is checked against the release's SHA256SUMS before it is
+# installed; a mismatch aborts the install.
 
 $ErrorActionPreference = 'Stop'
 
@@ -23,11 +28,12 @@ Write-Host "Install directory: $installDir"
 if ($env:ASR_VERSION) {
     $version = $env:ASR_VERSION
     if (-not $version.StartsWith("v")) { $version = "v$version" }
-    $downloadUrl = "https://github.com/$repo/releases/download/$version/$asset"
+    $baseUrl = "https://github.com/$repo/releases/download/$version"
 } else {
     # Use latest release redirect
-    $downloadUrl = "https://github.com/$repo/releases/latest/download/$asset"
+    $baseUrl = "https://github.com/$repo/releases/latest/download"
 }
+$downloadUrl = "$baseUrl/$asset"
 
 Write-Host "Downloading $asset from GitHub releases..."
 
@@ -37,13 +43,42 @@ if (-not (Test-Path $installDir)) {
 }
 
 $destPath = Join-Path $installDir $binName
+$tmpPath = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
 
 try {
-    Invoke-WebRequest -Uri $downloadUrl -OutFile $destPath -UseBasicParsing
+    Invoke-WebRequest -Uri $downloadUrl -OutFile $tmpPath -UseBasicParsing
 } catch {
     Write-Error "Failed to download $asset from $downloadUrl`nError: $_"
     exit 1
 }
+
+if ($env:ASR_SKIP_VERIFY -eq "1") {
+    Write-Warning "ASR_SKIP_VERIFY=1 set, installing without checksum verification"
+} else {
+    try {
+        $sums = (Invoke-WebRequest -Uri "$baseUrl/SHA256SUMS" -UseBasicParsing).Content
+        if ($sums -is [byte[]]) { $sums = [System.Text.Encoding]::UTF8.GetString($sums) }
+    } catch {
+        Remove-Item $tmpPath -ErrorAction SilentlyContinue
+        Write-Error ("Could not download SHA256SUMS for this release, refusing to install.`n" +
+            "Releases before 0.7.0 don't publish one; set `$env:ASR_SKIP_VERIFY = '1' to install anyway.")
+        exit 1
+    }
+    $expected = $null
+    foreach ($line in ($sums -split "`n")) {
+        $parts = $line.Trim() -split '\s+'
+        if ($parts.Count -eq 2 -and $parts[1].TrimStart('*') -eq $asset) { $expected = $parts[0] }
+    }
+    $actual = (Get-FileHash -Algorithm SHA256 $tmpPath).Hash.ToLower()
+    if (-not $expected -or $expected.ToLower() -ne $actual) {
+        Remove-Item $tmpPath -ErrorAction SilentlyContinue
+        Write-Error "Checksum verification failed for $asset (expected: $expected, actual: $actual), refusing to install."
+        exit 1
+    }
+    Write-Host "Checksum verified (sha256 $actual)"
+}
+
+Move-Item -Force $tmpPath $destPath
 
 Write-Host "Downloaded successfully to: $destPath"
 

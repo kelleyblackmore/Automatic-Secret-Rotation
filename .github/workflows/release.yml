@@ -6,10 +6,10 @@ on:
       - 'v*'
   workflow_dispatch:
 
+# Read-only by default; each job that writes asks for exactly what it needs.
+# The build matrix compiles third-party code and must not hold a write token.
 permissions:
-  contents: write
-  id-token: write
-  attestations: write
+  contents: read
 
 jobs:
   build-release:
@@ -48,21 +48,24 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch
         with:
+          toolchain: stable
           targets: ${{ matrix.target }}
 
       - name: Install cross tool (Linux ARM64)
         if: matrix.use_cross == true
-        run: cargo install cross --git https://github.com/cross-rs/cross
+        # Pinned: an unpinned git install builds whatever cross-rs/cross main is
+        # at release time into our ARM64 binary. Bump deliberately.
+        run: cargo install cross --locked --git https://github.com/cross-rs/cross --rev 5f05d13dc37c0db79f4448642c68e108b977a9e1
 
-      - name: Cache cargo build
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ matrix.target }}-v2
+      # No build cache here: release binaries are built from a clean slate so a
+      # cache written by an earlier (less trusted) run can't end up in them.
 
       - name: Build release binary (standard)
         if: matrix.use_cross != true && matrix.use_cmake != true
@@ -95,7 +98,7 @@ jobs:
         run: Copy-Item "target/${{ matrix.target }}/release/asr.exe" "${{ matrix.asset_name }}"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.asset_name }}
           path: ${{ matrix.asset_name }}
@@ -107,13 +110,19 @@ jobs:
     needs: build-release
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: asr-*
           merge-multiple: true
@@ -144,12 +153,30 @@ jobs:
           fi
           echo "All 5 binaries present."
 
+      # Installers verify downloads against this file before installing.
+      - name: Generate SHA256SUMS
+        working-directory: release-assets
+        run: sha256sum asr-* > SHA256SUMS && cat SHA256SUMS
+
+      # SLSA build provenance for the binaries, so a download can be traced back
+      # to this workflow run:
+      #   gh attestation verify <binary> --repo <owner>/<repo>
+      - name: Attest build provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            release-assets/asr-linux-x86_64
+            release-assets/asr-linux-arm64
+            release-assets/asr-darwin-x86_64
+            release-assets/asr-darwin-arm64
+            release-assets/asr-windows-x86_64.exe
+
       - name: Extract version
         id: version
-        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
 
       - name: Create Release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           tag_name: ${{ github.ref_name }}
           name: Release ${{ steps.version.outputs.version }}
@@ -175,6 +202,12 @@ jobs:
             curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | bash
             ```
 
+            Installers check each download against `SHA256SUMS`. To verify a
+            binary was built by this workflow:
+            ```bash
+            gh attestation verify asr-linux-x86_64 --repo ${{ github.repository }}
+            ```
+
             **Windows (PowerShell):**
             ```powershell
             irm https://raw.githubusercontent.com/${{ github.repository }}/main/install.ps1 | iex
@@ -186,6 +219,7 @@ jobs:
             release-assets/asr-darwin-x86_64
             release-assets/asr-darwin-arm64
             release-assets/asr-windows-x86_64.exe
+            release-assets/SHA256SUMS
             install.sh
             install.ps1
 
@@ -201,17 +235,19 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Download release binaries for attestation
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: asr-*
           merge-multiple: true
           path: release-assets
 
       - name: Generate SBOM (SPDX JSON)
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           path: .
           format: spdx-json
@@ -221,7 +257,7 @@ jobs:
           upload-release-assets: true
 
       - name: Generate SBOM (CycloneDX JSON)
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           path: .
           format: cyclonedx-json
@@ -230,8 +266,12 @@ jobs:
           upload-artifact: true
           upload-release-assets: true
 
-      - name: Attest SBOM provenance
-        uses: actions/attest-sbom@v4
+      # actions/attest-sbom is deprecated (#51); actions/attest with sbom-path
+      # is its replacement and produces the same SPDX predicate:
+      #   gh attestation verify <binary> --repo <owner>/<repo> \
+      #     --predicate-type https://spdx.dev/Document/v2.3
+      - name: Attest SBOM
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: |
             release-assets/asr-linux-x86_64
@@ -256,9 +296,62 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Flip draft to published
-        run: gh release edit ${{ github.ref_name }} --draft=false
+        run: gh release edit "$TAG" --draft=false
         env:
+          TAG: ${{ github.ref_name }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Install the published release the way users do, on every OS, and check
+  # what they'd get: checksums (inside the installers), a runnable binary of
+  # the right version, and both attestations.
+  verify-release:
+    name: Verify published release (${{ matrix.os }})
+    needs: publish
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install with install.sh
+        if: runner.os != 'Windows'
+        env:
+          ASR_VERSION: ${{ github.ref_name }}
+          ASR_BINARY_NAME: asr
+        run: |
+          bash ./install.sh
+          "$HOME/.local/bin/asr" --version | tee version.txt
+          grep -qx "asr ${ASR_VERSION#v}" version.txt
+
+      - name: Install with install.ps1
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          ASR_VERSION: ${{ github.ref_name }}
+        run: |
+          ./install.ps1
+          $out = & "$env:LOCALAPPDATA\Programs\asr\asr.exe" --version
+          Write-Host $out
+          if ($out -ne "asr $($env:ASR_VERSION.TrimStart('v'))") { throw "unexpected version: $out" }
+
+      - name: Verify attestations
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'asr-linux-x86_64' --dir verify
+          gh attestation verify verify/asr-linux-x86_64 --repo "$GITHUB_REPOSITORY"
+          gh attestation verify verify/asr-linux-x86_64 --repo "$GITHUB_REPOSITORY" \
+            --predicate-type https://spdx.dev/Document/v2.3
