@@ -178,7 +178,7 @@ port          = 3306
 database      = "legacy_app"
 username      = "svc_account"
 password_path = "infra/mysql/legacy/svc-account-password"
-ssl_mode      = "required"
+ssl_mode      = "verify-full"
 
 # ---------------------------------------------------------------------------
 # API — internal user management service

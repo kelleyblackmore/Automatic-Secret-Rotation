@@ -144,9 +144,9 @@ fn quote_string_literal(value: &str) -> Result<String> {
 /// Build mysql_async Opts with TLS configured from ssl_mode.
 ///
 /// ssl_mode mapping:
-///   None / "disable"                         → no TLS
-///   "require"                                → TLS, skip cert verification
-///   "verify-ca" / "verify-full" / "prefer"  → TLS with full cert verification
+///   "disable"                                       → no TLS
+///   "require"                                       → TLS, skip cert verification
+///   None / "verify-ca" / "verify-full" / "prefer"   → TLS with full cert verification
 #[cfg(feature = "mysql")]
 fn build_opts(
     host: &str,
@@ -157,13 +157,15 @@ fn build_opts(
     ssl_mode: Option<&str>,
 ) -> Result<Opts> {
     let ssl_opts: Option<SslOpts> = match ssl_mode.map(parse_ssl_mode) {
-        None | Some(TlsMode::Disabled) => None,
+        Some(TlsMode::Disabled) => None,
         Some(TlsMode::RequireNoVerify) => Some(
             SslOpts::default()
                 .with_danger_accept_invalid_certs(true)
                 .with_danger_skip_domain_validation(true),
         ),
-        Some(TlsMode::VerifyFull) => Some(SslOpts::default()),
+        // No ssl_mode means verified TLS: the admin login and the new
+        // password in ALTER USER must not cross the network in clear.
+        None | Some(TlsMode::VerifyFull) => Some(SslOpts::default()),
     };
 
     let opts = OptsBuilder::default()
@@ -179,7 +181,19 @@ fn build_opts(
 
 #[cfg(all(test, feature = "mysql"))]
 mod tests {
-    use super::quote_string_literal;
+    use super::{build_opts, quote_string_literal};
+
+    #[test]
+    fn build_opts_uses_tls_unless_disabled() {
+        let opts = |mode| build_opts("db", 3306, "app", "u", "p", mode).unwrap();
+        assert!(
+            opts(None).ssl_opts().is_some(),
+            "unset must not mean plaintext"
+        );
+        assert!(opts(Some("verify-full")).ssl_opts().is_some());
+        assert!(opts(Some("require")).ssl_opts().is_some());
+        assert!(opts(Some("disable")).ssl_opts().is_none());
+    }
 
     #[test]
     fn quote_string_literal_doubles_single_quotes() {

@@ -52,6 +52,27 @@ pub fn needs_rotation(
     now >= rotation_due
 }
 
+/// Pick the field of a multi-field secret that holds the credential.
+///
+/// Secrets are `HashMap`s, whose iteration order changes between runs, so
+/// "first match" overwrote a different field each time (e.g. `api_key`
+/// instead of `password`). The choice is now fixed: the first of these name
+/// fragments to match wins, ties go to the alphabetically first key, and a
+/// single-field secret uses its only field.
+pub fn select_secret_key(data: &HashMap<String, String>) -> Option<String> {
+    const PREFERENCE: [&str; 4] = ["password", "secret", "token", "key"];
+    let mut keys: Vec<&String> = data.keys().collect();
+    keys.sort();
+    PREFERENCE
+        .iter()
+        .find_map(|fragment| {
+            keys.iter()
+                .find(|k| k.to_lowercase().contains(fragment))
+                .map(|k| (*k).clone())
+        })
+        .or_else(|| (keys.len() == 1).then(|| keys[0].clone()))
+}
+
 /// Generate a random secret
 pub fn generate_secret(length: usize) -> String {
     // rand 0.10 moved the range-sampling helpers off `Rng` (now a re-export of
@@ -139,19 +160,7 @@ async fn rotate(
         .await
         .context("Failed to read current secret")?;
 
-    // Determine which key to update - look for common key names
-    let key_to_update = current
-        .data
-        .keys()
-        .find(|k| {
-            let lower = k.to_lowercase();
-            lower.contains("password")
-                || lower.contains("secret")
-                || lower.contains("key")
-                || lower.contains("token")
-        })
-        .cloned()
-        .unwrap_or_else(|| "secret".to_string());
+    let key_to_update = select_secret_key(&current.data).unwrap_or_else(|| "secret".to_string());
     let old_secret = current.data.get(&key_to_update).cloned();
 
     let new_secret = generate_secret(secret_length);
@@ -329,4 +338,43 @@ pub async fn scan_for_rotation(
     }
 
     Ok(needs_rotation_list)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::select_secret_key;
+    use std::collections::HashMap;
+
+    fn data(keys: &[&str]) -> HashMap<String, String> {
+        keys.iter()
+            .map(|k| (k.to_string(), "v".to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn select_secret_key_prefers_password_over_other_matches() {
+        // Run many times: HashMap order varies, the choice must not.
+        for _ in 0..50 {
+            let d = data(&["username", "api_key", "password", "token"]);
+            assert_eq!(select_secret_key(&d).as_deref(), Some("password"));
+        }
+        assert_eq!(
+            select_secret_key(&data(&["api_key", "auth_token"])).as_deref(),
+            Some("auth_token")
+        );
+        assert_eq!(
+            select_secret_key(&data(&["DB_PASSWORD", "admin_password"])).as_deref(),
+            Some("DB_PASSWORD")
+        );
+    }
+
+    #[test]
+    fn select_secret_key_uses_the_only_field_or_gives_up() {
+        assert_eq!(
+            select_secret_key(&data(&["value"])).as_deref(),
+            Some("value")
+        );
+        assert_eq!(select_secret_key(&data(&["host", "user"])), None);
+        assert_eq!(select_secret_key(&data(&[])), None);
+    }
 }

@@ -241,6 +241,8 @@ pub struct MysqlTargetConfig {
     pub password_path: Option<String>,
     #[serde(default)]
     pub password: Option<String>,
+    /// TLS mode. Unset means TLS with certificate verification; `require`
+    /// skips verification; `disable` connects in plaintext.
     #[serde(default)]
     pub ssl_mode: Option<String>,
 }

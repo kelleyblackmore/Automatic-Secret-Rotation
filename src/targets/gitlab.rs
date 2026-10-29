@@ -13,8 +13,10 @@ pub struct GitLabTarget {
     variable_key: String,
     base_url: String,
     token: String,
-    masked: bool,
-    protected: bool,
+    /// `None` means "not configured": updates leave the variable's existing
+    /// flag alone instead of resetting it.
+    masked: Option<bool>,
+    protected: Option<bool>,
     client: reqwest::Client,
 }
 
@@ -41,8 +43,8 @@ impl GitLabTarget {
             variable_key: config.variable_key.clone(),
             base_url,
             token,
-            masked: config.masked.unwrap_or(false),
-            protected: config.protected.unwrap_or(false),
+            masked: config.masked,
+            protected: config.protected,
             client: crate::util::http::build_http_client(30)?,
         })
     }
@@ -55,11 +57,16 @@ impl Target for GitLabTarget {
             "{}/api/v4/projects/{}/variables/{}",
             self.base_url, self.project_id, self.variable_key
         );
-        let update_body = serde_json::json!({
-            "value": new_password,
-            "masked": self.masked,
-            "protected": self.protected,
-        });
+        // Send only the flags the config sets. Sending false for unset flags
+        // silently unprotected and unmasked existing variables, exposing the
+        // value to pipelines on unprotected branches.
+        let mut update_body = serde_json::json!({ "value": new_password });
+        if let Some(masked) = self.masked {
+            update_body["masked"] = masked.into();
+        }
+        if let Some(protected) = self.protected {
+            update_body["protected"] = protected.into();
+        }
 
         let resp = self
             .client
@@ -79,8 +86,8 @@ impl Target for GitLabTarget {
             let create_body = serde_json::json!({
                 "key": self.variable_key,
                 "value": new_password,
-                "masked": self.masked,
-                "protected": self.protected,
+                "masked": self.masked.unwrap_or(false),
+                "protected": self.protected.unwrap_or(false),
             });
             let create_resp = self
                 .client

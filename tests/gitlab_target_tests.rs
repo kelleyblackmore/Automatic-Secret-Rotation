@@ -232,3 +232,33 @@ async fn test_gitlab_create_body_includes_masked_flag() -> Result<()> {
     post_mock.assert_async().await;
     Ok(())
 }
+
+#[tokio::test]
+async fn test_gitlab_update_leaves_unconfigured_flags_alone() -> Result<()> {
+    let mut server = mockito::Server::new_async().await;
+
+    // Matches only a body that is exactly {"value": "s"}: no masked/protected.
+    let put = server
+        .mock("PUT", "/api/v4/projects/1/variables/SECRET_VAR")
+        .match_body(mockito::Matcher::Json(serde_json::json!({ "value": "s" })))
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"key":"SECRET_VAR","value":"s"}"#)
+        .create_async()
+        .await;
+
+    let config = GitLabTargetConfig {
+        project_id: "1".to_string(),
+        variable_key: "SECRET_VAR".to_string(),
+        gitlab_url: Some(server.url()),
+        token: Some("tok".to_string()),
+        token_path: None,
+        masked: None,
+        protected: None,
+    };
+    let target = GitLabTarget::new(&config).await?;
+    target.update_password("", "s").await?;
+
+    put.assert_async().await;
+    Ok(())
+}
