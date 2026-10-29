@@ -255,7 +255,23 @@ impl SecretBackend for AzureKeyVaultBackend {
             }
 
             match list.next_link {
-                Some(next) => url = next,
+                Some(next) => {
+                    // The bearer token goes to whatever URL the server names
+                    // here, so it must stay on the vault's own origin: no
+                    // downgrade to http:// and no other host.
+                    let same_origin = matches!(
+                        (reqwest::Url::parse(&next), reqwest::Url::parse(&self.vault_url)),
+                        (Ok(n), Ok(v)) if n.origin() == v.origin()
+                    );
+                    if !same_origin {
+                        anyhow::bail!(
+                            "Azure Key Vault returned a nextLink outside {}; refusing to send \
+                             the access token there",
+                            self.vault_url
+                        );
+                    }
+                    url = next
+                }
                 None => break,
             }
         }
@@ -265,5 +281,56 @@ impl SecretBackend for AzureKeyVaultBackend {
 
     fn backend_type(&self) -> &'static str {
         "Azure Key Vault"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn backend_for(server: &mockito::Server) -> AzureKeyVaultBackend {
+        // Only this module's tests touch AZURE_ACCESS_TOKEN.
+        std::env::set_var("AZURE_ACCESS_TOKEN", "test-token");
+        AzureKeyVaultBackend::new(&AzureConfig {
+            vault_url: server.url(),
+            tenant_id: None,
+        })
+        .await
+        .unwrap()
+    }
+
+    fn page(names: &[&str], next: Option<String>) -> String {
+        serde_json::json!({
+            "value": names.iter().map(|n| serde_json::json!({"id": format!("https://v/secrets/{n}")})).collect::<Vec<_>>(),
+            "nextLink": next,
+        })
+        .to_string()
+    }
+
+    #[tokio::test]
+    async fn list_follows_next_link_on_the_vault_origin_only() {
+        let mut server = mockito::Server::new_async().await;
+        let _p1 = server
+            .mock("GET", "/secrets")
+            .match_query(mockito::Matcher::UrlEncoded(
+                "maxresults".into(),
+                "25".into(),
+            ))
+            .with_body(page(
+                &["a"],
+                Some(format!("{}/secrets?page=2", server.url())),
+            ))
+            .create_async()
+            .await;
+        let _p2 = server
+            .mock("GET", "/secrets")
+            .match_query(mockito::Matcher::UrlEncoded("page".into(), "2".into()))
+            .with_body(page(&["b"], Some("https://attacker.example/steal".into())))
+            .create_async()
+            .await;
+
+        let backend = backend_for(&server).await;
+        let err = backend.list_secrets("").await.unwrap_err().to_string();
+        assert!(err.contains("refusing to send the access token"), "{err}");
     }
 }
