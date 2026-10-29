@@ -1,0 +1,30 @@
+# Add to Cargo.toml. In a workspace, put these under [workspace.lints.rust] /
+# [workspace.lints.clippy] in the root Cargo.toml, and add this to EVERY member
+# crate's Cargo.toml, or the members get none of these lints:
+#
+#   [lints]
+#   workspace = true
+
+[lints.rust]
+unsafe_code = "forbid"             # remove for crates that genuinely need unsafe
+unsafe_op_in_unsafe_fn = "deny"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# Panics on untrusted input
+unwrap_used = "deny"
+expect_used = "warn"
+indexing_slicing = "warn"
+panic = "warn"
+# Numeric safety
+cast_possible_truncation = "deny"
+cast_sign_loss = "deny"
+arithmetic_side_effects = "warn"
+# unsafe hygiene
+undocumented_unsafe_blocks = "deny"
+# Leftovers
+dbg_macro = "deny"
+todo = "deny"
+print_stdout = "warn"

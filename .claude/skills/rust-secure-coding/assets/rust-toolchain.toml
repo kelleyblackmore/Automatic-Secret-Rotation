@@ -1,0 +1,4 @@
+# Latest stable when written; look it up again (see SKILL.md).
+[toolchain]
+channel = "1.99.1"
+components = ["clippy", "rustfmt"]

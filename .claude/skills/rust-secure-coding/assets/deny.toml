@@ -1,0 +1,29 @@
+# deny.toml for cargo-deny. Run: cargo deny check
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+yanked = "deny"
+ignore = [
+  # { id = "RUSTSEC-YYYY-NNNN", reason = "why it doesn't apply; remove by YYYY-MM-DD" },
+]
+
+[licenses]
+version = 2
+allow = ["MIT", "Apache-2.0", "Apache-2.0 WITH LLVM-exception", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Unicode-3.0", "Zlib"]
+confidence-threshold = 0.9
+unused-allowed-license = "allow"
+
+[licenses.private]
+# Skip license checks for this workspace's own crates marked `publish = false`.
+ignore = true
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

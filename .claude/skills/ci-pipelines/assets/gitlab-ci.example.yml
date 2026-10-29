@@ -1,0 +1,114 @@
+# Replace <digest> values: docker buildx imagetools inspect <image:tag>
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_BRANCH == "develop"
+    - if: $CI_COMMIT_TAG
+
+stages: [lint, test, security, build, deploy]
+
+default:
+  image: python:3.15-slim@sha256:<digest>
+  interruptible: true
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+.pip-cache:
+  cache:
+    key:
+      files: [requirements.txt]
+    paths: [.cache/pip]
+
+pre-commit:
+  stage: lint
+  extends: .pip-cache
+  variables:
+    PRE_COMMIT_HOME: "$CI_PROJECT_DIR/.cache/pre-commit"
+  script:
+    - apt-get update && apt-get install -y --no-install-recommends git
+    - pip install pre-commit
+    - pre-commit run --all-files --show-diff-on-failure
+
+test:
+  stage: test
+  extends: .pip-cache
+  script:
+    - pip install -r requirements.txt -r requirements-dev.txt
+    - pytest
+
+dependency-audit:
+  stage: security
+  needs: []
+  extends: .pip-cache
+  script:
+    - pip install pip-audit
+    - pip-audit -r requirements.txt
+
+sast:
+  stage: security
+  needs: []
+  script:
+    - pip install bandit
+    - bandit -c pyproject.toml -r . -q
+
+secrets:
+  stage: security
+  needs: []
+  image:
+    name: ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+    entrypoint: [""]
+  variables:
+    GIT_DEPTH: 0
+  script:
+    - gitleaks git . --redact --exit-code 1
+
+# Build to an archive; nothing reaches the registry until the scan passes.
+build-image:
+  stage: build
+  image: docker:cli@sha256:<digest>
+  services: [docker:dind@sha256:<digest>]
+  script:
+    - docker build -t "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA" .
+    - docker save -o image.tar "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA"
+  artifacts:
+    paths: [image.tar]
+    expire_in: 1 day
+
+scan-image:
+  stage: build
+  needs: [build-image]
+  image:
+    name: aquasec/trivy:0.76.1@sha256:<digest>
+    entrypoint: [""]
+  script:
+    - trivy image --input image.tar --severity HIGH,CRITICAL --exit-code 1
+
+push-image:
+  stage: build
+  needs: [build-image, scan-image]
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_COMMIT_BRANCH == "develop" || $CI_COMMIT_TAG
+  image: docker:cli@sha256:<digest>
+  services: [docker:dind@sha256:<digest>]
+  script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - docker load -i image.tar
+    - docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA"
+
+deploy:
+  stage: deploy
+  interruptible: false
+  needs: [push-image]
+  resource_group: production
+  environment: production
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  id_tokens:
+    CLOUD_ID_TOKEN:
+      aud: https://example.com
+  script:
+    - ./deploy.sh "$CI_COMMIT_SHA"
