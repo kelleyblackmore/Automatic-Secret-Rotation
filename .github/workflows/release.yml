@@ -254,7 +254,9 @@ jobs:
           output-file: asr-${{ github.ref_name }}.spdx.json
           artifact-name: asr-sbom-spdx
           upload-artifact: true
-          upload-release-assets: true
+          # Uploaded explicitly below: sbom-action only attaches release assets
+          # on push/release events, not when Tag Release dispatches this run.
+          upload-release-assets: false
 
       - name: Generate SBOM (CycloneDX JSON)
         uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
@@ -264,7 +266,9 @@ jobs:
           output-file: asr-${{ github.ref_name }}.cdx.json
           artifact-name: asr-sbom-cdx
           upload-artifact: true
-          upload-release-assets: true
+          # Uploaded explicitly below: sbom-action only attaches release assets
+          # on push/release events, not when Tag Release dispatches this run.
+          upload-release-assets: false
 
       # actions/attest-sbom is deprecated (#51); actions/attest with sbom-path
       # is its replacement and produces the same SPDX predicate:
@@ -280,6 +284,16 @@ jobs:
             release-assets/asr-darwin-arm64
             release-assets/asr-windows-x86_64.exe
           sbom-path: asr-${{ github.ref_name }}.spdx.json
+
+      # Attach both SBOMs to the draft. Must happen before publish: releases are
+      # immutable once published.
+      - name: Upload SBOMs to the draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            "asr-$TAG.spdx.json" "asr-$TAG.cdx.json"
 
   # This repo has GitHub's immutable releases enabled: once a release is
   # published its asset list is frozen and every further upload 422s with
@@ -344,6 +358,26 @@ jobs:
           $out = & "$env:LOCALAPPDATA\Programs\asr\asr.exe" --version
           Write-Host $out
           if ($out -ne "asr $($env:ASR_VERSION.TrimStart('v'))") { throw "unexpected version: $out" }
+
+      - name: Check release assets
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          assets=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
+          echo "$assets"
+          missing=0
+          for a in asr-linux-x86_64 asr-linux-arm64 asr-darwin-x86_64 asr-darwin-arm64 \
+                   asr-windows-x86_64.exe SHA256SUMS install.sh install.ps1 \
+                   "asr-$TAG.spdx.json" "asr-$TAG.cdx.json"; do
+            if ! grep -qx "$a" <<< "$assets"; then
+              echo "::error::Release is missing $a"
+              missing=1
+            fi
+          done
+          exit "$missing"
 
       - name: Verify attestations
         shell: bash

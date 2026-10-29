@@ -244,6 +244,16 @@ docker compose -f tests/integration/docker-compose.yml down
 cargo build --release  # Release build
 ```
 
+### Releasing
+
+Bump `version` in `Cargo.toml`, run `cargo update -p secret-rotator` so
+`Cargo.lock` records the new version (release builds use `--locked`), and merge
+both to `main`. The `Tag Release` workflow tags the commit `v<version>` and
+starts the `Release` and `Integration Tests` workflows. `Release` builds the
+binaries, publishes `SHA256SUMS` and the SBOMs, attests provenance and the SBOM,
+and then installs the published release on Linux, macOS and Windows to check it.
+Pushing a `v*` tag by hand still works too.
+
 ## License
 
 Apache License — see [LICENSE](LICENSE).
