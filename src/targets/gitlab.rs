@@ -35,6 +35,8 @@ impl GitLabTarget {
             .trim_end_matches('/')
             .to_string();
 
+        crate::util::http::require_secure_url(&base_url, "GitLab URL (carries the GitLab token)")?;
+
         // Percent-encode path separator so "group/project" → "group%2Fproject"
         let project_id = config.project_id.replace('/', "%2F");
 

@@ -45,13 +45,19 @@ impl GitHubTarget {
             .or_else(|| std::env::var("GITHUB_TOKEN").ok())
             .context("GitHub token not set — provide token in config or set GITHUB_TOKEN")?;
 
+        let api_base = config
+            .api_url
+            .as_deref()
+            .unwrap_or(GITHUB_API)
+            .trim_end_matches('/')
+            .to_string();
+        crate::util::http::require_secure_url(
+            &api_base,
+            "GitHub API URL (carries the GitHub token)",
+        )?;
+
         Ok(Self {
-            api_base: config
-                .api_url
-                .as_deref()
-                .unwrap_or(GITHUB_API)
-                .trim_end_matches('/')
-                .to_string(),
+            api_base,
             owner: config.owner.clone(),
             repo: config.repo.clone(),
             secret_name: config.secret_name.clone(),

@@ -46,6 +46,10 @@ struct KvSecretListItem {
 
 impl AzureKeyVaultBackend {
     pub async fn new(config: &AzureConfig) -> Result<Self> {
+        crate::util::http::require_secure_url(
+            &config.vault_url,
+            "Azure Key Vault URL (carries the access token)",
+        )?;
         Ok(Self {
             vault_url: config.vault_url.trim_end_matches('/').to_string(),
             client: crate::util::http::build_http_client(30)?,

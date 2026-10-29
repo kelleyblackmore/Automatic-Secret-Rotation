@@ -47,15 +47,20 @@ impl ApiTarget {
         let encoded = utf8_percent_encode(username, PATH_SEGMENT).to_string();
         let url = self.config.endpoint.replace("{username}", &encoded);
 
-        if url.starts_with("http://") || url.starts_with("https://") {
-            Ok(url)
+        let url = if url.starts_with("http://") || url.starts_with("https://") {
+            url
         } else {
-            Ok(format!(
+            format!(
                 "{}/{}",
                 self.config.base_url.trim_end_matches('/'),
                 url.trim_start_matches('/')
-            ))
-        }
+            )
+        };
+        crate::util::http::require_secure_url(
+            &url,
+            "API target URL (carries the auth header and new password)",
+        )?;
+        Ok(url)
     }
 }
 

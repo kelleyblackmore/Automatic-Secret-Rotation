@@ -40,6 +40,7 @@ pub struct VaultWriteRequest {
 impl VaultClient {
     /// Create a new Vault client
     pub fn new(address: String, token: String) -> Result<Self> {
+        crate::util::http::require_secure_url(&address, "Vault address (carries the Vault token)")?;
         let client = crate::util::http::build_http_client(30)?;
 
         Ok(Self {
@@ -201,6 +202,11 @@ impl VaultBackend {
 
     /// Create a VaultBackend from config, performing dynamic auth if needed.
     pub async fn from_config(config: &crate::config::VaultConfig) -> Result<Self> {
+        // Checked before authenticating: login sends AppRole/Kubernetes/AWS credentials.
+        crate::util::http::require_secure_url(
+            &config.address,
+            "Vault address (carries Vault credentials)",
+        )?;
         let http = crate::util::http::build_http_client(30)?;
         let token = resolve_vault_token(config, &http).await?;
         let vault_client =

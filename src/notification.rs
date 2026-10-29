@@ -98,6 +98,7 @@ impl NotificationClient {
         let Some(ref url) = self.webhook_url else {
             return Ok(());
         };
+        crate::util::http::require_secure_url(url, "Webhook URL (carries the auth header)")?;
 
         let mut request = self.client.post(url).json(body);
         if let Some(ref auth) = self.auth_header {

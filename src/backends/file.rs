@@ -50,13 +50,46 @@ impl FileBackend {
 
     /// Convert a secret path to a file path
     /// Example: "myapp/database" -> base_dir/myapp/database
-    fn path_to_file(&self, path: &str) -> PathBuf {
-        self.base_dir.join(path)
+    ///
+    /// The path must stay inside the base directory: absolute paths, `..`
+    /// and drive prefixes are refused, because `join` would otherwise let a
+    /// path like `../../etc/x` or `/etc/x` read or overwrite any file the
+    /// user can reach.
+    fn path_to_file(&self, path: &str) -> Result<PathBuf> {
+        use std::path::Component;
+        let relative = Path::new(path);
+        let escapes = relative
+            .components()
+            .any(|c| !matches!(c, Component::Normal(_) | Component::CurDir));
+        if escapes {
+            anyhow::bail!(
+                "Invalid secret path {:?}: it must be relative and stay inside {:?}",
+                path,
+                self.base_dir
+            );
+        }
+        if relative.extension().is_some_and(|e| e == "meta") {
+            anyhow::bail!(
+                "Invalid secret path {:?}: the .meta extension is reserved for metadata",
+                path
+            );
+        }
+        Ok(self.base_dir.join(relative))
     }
 
-    /// Get metadata file path for a secret
-    fn metadata_path(&self, path: &str) -> PathBuf {
-        self.path_to_file(path).with_extension("meta")
+    /// Get metadata file path for a secret: the secret's file name plus
+    /// `.meta`. (It used to replace the extension, so `db.v1` and `db.v2`
+    /// shared `db.meta` and overwrote each other's rotation schedule.)
+    fn metadata_path(&self, path: &str) -> Result<PathBuf> {
+        let mut meta = self.path_to_file(path)?.into_os_string();
+        meta.push(".meta");
+        Ok(PathBuf::from(meta))
+    }
+
+    /// Where metadata lived before 0.7.1, read as a fallback so existing
+    /// rotation schedules for dotted names keep working until next written.
+    fn legacy_metadata_path(&self, path: &str) -> Result<PathBuf> {
+        Ok(self.path_to_file(path)?.with_extension("meta"))
     }
 
     /// Parse a key:value line from the secret file
@@ -95,15 +128,41 @@ impl FileBackend {
         Ok(())
     }
 
-    /// Write content to a file and restrict it to owner-only read/write (0o600 on Unix).
+    /// Write content to a file readable only by its owner (0o600 on Unix).
+    ///
+    /// The content goes to a temporary file in the same directory that is
+    /// created with mode 0o600, then renamed over the target. The secret is
+    /// therefore never in a file other users can read, not even briefly, and
+    /// a crash mid-write leaves the old secret intact rather than half a file.
     fn write_restricted(path: &Path, content: &str) -> Result<()> {
-        fs::write(path, content).with_context(|| format!("Failed to write file: {:?}", path))?;
+        use std::io::Write;
 
+        let file_name = path
+            .file_name()
+            .with_context(|| format!("Invalid secret file path: {:?}", path))?
+            .to_string_lossy();
+        let tmp_path = path.with_file_name(format!(
+            ".{}.tmp-{}-{}",
+            file_name,
+            std::process::id(),
+            rand::random::<u32>()
+        ));
+
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
         #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(path, fs::Permissions::from_mode(0o600))
-                .with_context(|| format!("Failed to set permissions on {:?}", path))?;
+        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+
+        let result = options
+            .open(&tmp_path)
+            .and_then(|mut f| {
+                f.write_all(content.as_bytes())?;
+                f.sync_all()
+            })
+            .and_then(|()| fs::rename(&tmp_path, path));
+        if let Err(e) = result {
+            let _ = fs::remove_file(&tmp_path);
+            return Err(e).with_context(|| format!("Failed to write file: {:?}", path));
         }
 
         #[cfg(windows)]
@@ -122,7 +181,7 @@ impl SecretBackend for FileBackend {
     async fn read_secret(&self, path: &str) -> Result<SecretData> {
         debug!("Reading secret from file: {}", path);
 
-        let file_path = self.path_to_file(path);
+        let file_path = self.path_to_file(path)?;
 
         if !file_path.exists() {
             anyhow::bail!("Secret file not found: {:?}", file_path);
@@ -147,7 +206,7 @@ impl SecretBackend for FileBackend {
     async fn write_secret(&self, path: &str, data: HashMap<String, String>) -> Result<()> {
         info!("Writing secret to file: {}", path);
 
-        let file_path = self.path_to_file(path);
+        let file_path = self.path_to_file(path)?;
         self.ensure_parent_dir(&file_path)?;
 
         let mut content = String::new();
@@ -167,7 +226,7 @@ impl SecretBackend for FileBackend {
     async fn update_metadata(&self, path: &str, metadata: HashMap<String, String>) -> Result<()> {
         debug!("Updating metadata for: {}", path);
 
-        let meta_path = self.metadata_path(path);
+        let meta_path = self.metadata_path(path)?;
         self.ensure_parent_dir(&meta_path)?;
 
         let mut content = String::new();
@@ -184,7 +243,10 @@ impl SecretBackend for FileBackend {
     }
 
     async fn read_metadata(&self, path: &str) -> Result<HashMap<String, String>> {
-        let meta_path = self.metadata_path(path);
+        let mut meta_path = self.metadata_path(path)?;
+        if !meta_path.exists() {
+            meta_path = self.legacy_metadata_path(path)?;
+        }
 
         if !meta_path.exists() {
             return Ok(HashMap::new());
@@ -209,7 +271,7 @@ impl SecretBackend for FileBackend {
         let dir_path = if path.is_empty() {
             self.base_dir.clone()
         } else {
-            self.path_to_file(path)
+            self.path_to_file(path)?
         };
 
         if !dir_path.exists() {
