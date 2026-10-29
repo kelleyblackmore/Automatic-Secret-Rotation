@@ -6,7 +6,10 @@ useDefault = true
 description = "Fake values used in tests and docs"
 # Allow exact fake values only. Never allow-list paths such as .env.example:
 # gitleaks would then skip a real key someone pastes there by mistake.
+# Anchor each regex: gitleaks matches allowlist regexes as substrings, so an
+# unanchored prefix like sk_test_0{20,} would also hide a real key that starts
+# with it.
 regexes = [
-  '''AKIAIOSFODNN7EXAMPLE''',
-  '''sk_test_0{20,}''',
+  '''^AKIAIOSFODNN7EXAMPLE$''',
+  '''^sk_test_0{20,}$''',
 ]

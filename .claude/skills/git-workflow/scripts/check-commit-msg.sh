@@ -7,11 +7,14 @@ msg_file="${1:?usage: check-commit-msg.sh <commit-msg-file>}"
 
 # Drop comment lines git adds to the editor template.
 msg=$(grep -v '^#' "$msg_file" || true)
-subject=$(printf '%s\n' "$msg" | sed -n '/./{p;q;}')
+# Here-strings, not pipes: with pipefail, a reader that stops early (sed q,
+# grep -q) kills printf with SIGPIPE on a long message.
+subject=$(sed -n '/./{p;q;}' <<<"$msg")
 
-# Let git's own merge/revert/fixup subjects through.
+# git's own merge/revert/fixup subjects skip the subject format checks only.
+generated_subject=false
 case "$subject" in
-  "Merge "* | "Revert "* | "fixup! "* | "squash! "* | "amend! "*) exit 0 ;;
+  "Merge "* | "Revert "* | "fixup! "* | "squash! "* | "amend! "*) generated_subject=true ;;
 esac
 
 fail=0
@@ -24,21 +27,22 @@ if [ -z "$subject" ]; then
   err "empty subject"
 fi
 
-if [ "${#subject}" -gt 72 ]; then
-  err "subject is ${#subject} chars; keep it under 50, max 72"
-fi
-
-if printf '%s' "$subject" | grep -qE '\.$'; then
-  err "subject ends with a period"
+if [ "$generated_subject" = false ]; then
+  if [ "${#subject}" -gt 72 ]; then
+    err "subject is ${#subject} chars; keep it under 50, max 72"
+  fi
+  if grep -qE '\.$' <<<"$subject"; then
+    err "subject ends with a period"
+  fi
 fi
 
 ai_pattern='co-authored-by:.*(claude|anthropic|openai|chatgpt|gpt-?[0-9]|copilot|gemini|cursor|codeium|\[bot\]|noreply@anthropic)|generated (with|by) .*(claude|ai|gpt|copilot)|🤖|ai[- ]assisted|ai[- ]generated|claude\.ai/code|claude-session:'
-if printf '%s\n' "$msg" | grep -qiE "$ai_pattern"; then
+if grep -qiE "$ai_pattern" <<<"$msg"; then
   err "contains AI attribution; remove it"
 fi
 
 plan_pattern='(^|[^[:alnum:]])(m[0-9]+|p[0-9]+|phase[ -]?[0-9]+|milestone[ -]?[0-9]*|step [0-9]+( of [0-9]+)?|task [0-9]+(/[0-9]+)?|part [0-9]+ of)([^[:alnum:]]|$)|as planned|per (the )?plan|(of|from|in) the plan|wip([^[:alnum:]]|$)'
-if printf '%s\n' "$msg" | grep -qiE "$plan_pattern"; then
+if [ "$generated_subject" = false ] && grep -qiE "$plan_pattern" <<<"$msg"; then
   err "contains planning labels (M1, P1, phase, step N, 'as planned', WIP); describe the change instead"
 fi
 
@@ -48,7 +52,7 @@ ai_ident='claude|anthropic|copilot|openai|chatgpt|gpt-?[0-9]|gemini|cursor|codei
 if [ "$(git config --bool workflow.allowAiAuthor || echo false)" != "true" ]; then
   for var in GIT_AUTHOR_IDENT GIT_COMMITTER_IDENT; do
     ident=$(git var "$var" 2>/dev/null | sed 's/>.*/>/' || true)
-    if printf '%s' "$ident" | grep -qiE "$ai_ident"; then
+    if grep -qiE "$ai_ident" <<<"$ident"; then
       err "$var is an AI/bot identity ($ident); set git config user.name/user.email to the user"
     fi
   done

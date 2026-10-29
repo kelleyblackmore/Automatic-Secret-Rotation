@@ -53,6 +53,11 @@ git ls-remote https://github.com/actions/checkout "refs/tags/$tag^{}" "refs/tags
 (Use the `^{}` line if present: that's the commit behind an annotated tag.)
 Let Dependabot or Renovate keep SHAs current (`assets/dependabot.example.yml`).
 
+Pinning a composite action doesn't pin what it calls. Read its `action.yml`.
+If it `uses:` another action by tag (e.g. `pre-commit/action` uses
+`actions/cache@v4`), run the tool directly instead
+(`pip install pre-commit==<latest>` then `pre-commit run --all-files`).
+
 Dependabot does not update container images referenced inside `run:` steps
 (e.g. `docker run image@sha256:…`) or GitLab `image:` keys. Pin them by
 digest anyway, then either let Renovate update them (its `regex` manager can
