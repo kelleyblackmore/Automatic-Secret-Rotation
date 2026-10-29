@@ -244,6 +244,14 @@ docker compose -f tests/integration/docker-compose.yml down
 cargo build --release  # Release build
 ```
 
+### Releasing
+
+Bump `version` in `Cargo.toml` and merge that to `main`. The `Tag Release`
+workflow tags the commit `v<version>` and starts the `Release` workflow, which
+builds the binaries, publishes `SHA256SUMS`, attests provenance and the SBOM,
+and then installs the published release on Linux, macOS and Windows to check it.
+Pushing a `v*` tag by hand still works too.
+
 ## License
 
 Apache License — see [LICENSE](LICENSE).
