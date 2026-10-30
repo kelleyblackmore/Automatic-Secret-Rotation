@@ -1,6 +1,6 @@
 [package]
 name = "secret-rotator"
-version = "0.7.0"
+version = "0.7.1"
 edition = "2021"
 rust-version = "1.94.1"
 authors = ["Kelley Blackmore"]
@@ -86,6 +86,11 @@ postgres-native-tls = "0.5"
 # Client-side SCRAM-SHA-256 hashing so ALTER USER never carries a cleartext password
 postgres-protocol = "0.6"
 percent-encoding = "2"
+# Already in the tree via reqwest; named directly to match on url::Host
+url = "2"
+# Directory-relative file access for the file backend: no path, `..` or
+# symlink can resolve outside the secrets directory, even if swapped mid-call
+cap-std = "4"
 
 # Optional: Kubernetes / OpenShift backend
 kube = { version = "4", features = ["runtime", "derive"], optional = true }

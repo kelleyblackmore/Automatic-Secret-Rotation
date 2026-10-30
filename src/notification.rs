@@ -98,6 +98,13 @@ impl NotificationClient {
         let Some(ref url) = self.webhook_url else {
             return Ok(());
         };
+        // Callers ignore notification errors, so say why nothing was sent.
+        if let Err(e) =
+            crate::util::http::require_secure_url(url, "Webhook URL (carries the auth header)")
+        {
+            warn!("Webhook notification not sent: {:#}", e);
+            return Err(e);
+        }
 
         let mut request = self.client.post(url).json(body);
         if let Some(ref auth) = self.auth_header {
