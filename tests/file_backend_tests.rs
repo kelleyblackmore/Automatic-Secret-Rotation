@@ -193,3 +193,89 @@ async fn test_secret_files_are_owner_only_and_written_atomically() -> Result<()>
     assert!(leftovers.is_empty(), "{leftovers:?}");
     Ok(())
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_symlinked_directory_pointing_outside_is_not_followed() -> Result<()> {
+    let root = TempDir::new()?;
+    let base = root.path().join("secrets");
+    let outside = root.path().join("outside");
+    std::fs::create_dir_all(&outside)?;
+    std::fs::write(outside.join("db"), "password:keep-me\n")?;
+    let backend = FileBackend::new(&base)?;
+    // secrets/app -> ../outside: every path component is "normal".
+    std::os::unix::fs::symlink(&outside, base.join("app"))?;
+
+    assert!(backend.read_secret("app/db").await.is_err());
+    assert!(backend
+        .write_secret("app/db", one("password", "x"))
+        .await
+        .is_err());
+    assert!(backend
+        .write_secret("app/new", one("password", "x"))
+        .await
+        .is_err());
+    assert!(backend
+        .update_metadata("app/db", one("k", "v"))
+        .await
+        .is_err());
+
+    assert_eq!(
+        std::fs::read_to_string(outside.join("db"))?,
+        "password:keep-me\n"
+    );
+    assert!(!outside.join("new").exists());
+    assert!(!outside.join("db.meta").exists());
+    Ok(())
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_symlinked_file_pointing_outside_is_not_read_or_written_through() -> Result<()> {
+    let root = TempDir::new()?;
+    let base = root.path().join("secrets");
+    let outside = root.path().join("victim");
+    std::fs::write(&outside, "password:keep-me\n")?;
+    let backend = FileBackend::new(&base)?;
+    std::os::unix::fs::symlink(&outside, base.join("db"))?;
+
+    assert!(backend.read_secret("db").await.is_err());
+    // A write may replace the link itself, but must never change its target.
+    let _ = backend.write_secret("db", one("password", "x")).await;
+    assert_eq!(std::fs::read_to_string(&outside)?, "password:keep-me\n");
+    Ok(())
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_listing_skips_symlinks_that_leave_the_directory() -> Result<()> {
+    let root = TempDir::new()?;
+    let base = root.path().join("secrets");
+    let outside = root.path().join("outside");
+    std::fs::create_dir_all(&outside)?;
+    std::fs::write(outside.join("stolen"), "password:x\n")?;
+    let backend = FileBackend::new(&base)?;
+    backend.write_secret("app/db", one("password", "x")).await?;
+    std::os::unix::fs::symlink(&outside, base.join("escape"))?;
+
+    let listed = backend.list_secrets("").await?;
+    assert_eq!(listed, vec!["app/db".to_string()]);
+    Ok(())
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_symlinks_that_stay_inside_still_work() -> Result<()> {
+    let temp_dir = TempDir::new()?;
+    let backend = FileBackend::new(temp_dir.path())?;
+    backend
+        .write_secret("real/db", one("password", "inside"))
+        .await?;
+    std::os::unix::fs::symlink("real", temp_dir.path().join("alias"))?;
+
+    assert_eq!(
+        backend.read_secret("alias/db").await?.data["password"],
+        "inside"
+    );
+    Ok(())
+}

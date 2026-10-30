@@ -1,6 +1,8 @@
 use anyhow::{Context, Result};
+use cap_std::fs::Dir;
 use std::collections::HashMap;
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 use tracing::{debug, info};
 
@@ -14,8 +16,15 @@ use super::secret_backend::{SecretBackend, SecretData};
 ///   username:admin
 ///
 /// Metadata is stored in a separate .meta file alongside the secret file
+///
+/// Every file operation goes through `dir`, a capability handle on the base
+/// directory: paths are resolved relative to it, and anything that would
+/// lead outside it (`..`, an absolute path, or a symlink, even one swapped
+/// in mid-operation) fails instead of touching the outside file. Symlinks
+/// that stay inside the directory keep working.
 pub struct FileBackend {
     base_dir: PathBuf,
+    dir: Dir,
 }
 
 impl FileBackend {
@@ -45,17 +54,19 @@ impl FileBackend {
             info!("Created base directory: {:?}", base_dir);
         }
 
-        Ok(Self { base_dir })
+        let dir = Dir::open_ambient_dir(&base_dir, cap_std::ambient_authority())
+            .with_context(|| format!("Failed to open base directory: {:?}", base_dir))?;
+
+        Ok(Self { base_dir, dir })
     }
 
-    /// Convert a secret path to a file path
-    /// Example: "myapp/database" -> base_dir/myapp/database
+    /// Validate a secret path and return it relative to the base directory.
+    /// Example: "myapp/database" -> myapp/database
     ///
-    /// The path must stay inside the base directory: absolute paths, `..`
-    /// and drive prefixes are refused, because `join` would otherwise let a
-    /// path like `../../etc/x` or `/etc/x` read or overwrite any file the
-    /// user can reach.
-    fn path_to_file(&self, path: &str) -> Result<PathBuf> {
+    /// Absolute paths, `..` and drive prefixes are refused up front for a
+    /// clear error; `dir` would refuse them anyway, along with symlinks that
+    /// point outside.
+    fn relative_path(&self, path: &str) -> Result<PathBuf> {
         use std::path::Component;
         let relative = Path::new(path);
         let escapes = relative
@@ -74,14 +85,14 @@ impl FileBackend {
                 path
             );
         }
-        Ok(self.base_dir.join(relative))
+        Ok(relative.to_path_buf())
     }
 
     /// Get metadata file path for a secret: the secret's file name plus
     /// `.meta`. (It used to replace the extension, so `db.v1` and `db.v2`
     /// shared `db.meta` and overwrote each other's rotation schedule.)
     fn metadata_path(&self, path: &str) -> Result<PathBuf> {
-        let mut meta = self.path_to_file(path)?.into_os_string();
+        let mut meta = self.relative_path(path)?.into_os_string();
         meta.push(".meta");
         Ok(PathBuf::from(meta))
     }
@@ -89,7 +100,17 @@ impl FileBackend {
     /// Where metadata lived before 0.7.1, read as a fallback so existing
     /// rotation schedules for dotted names keep working until next written.
     fn legacy_metadata_path(&self, path: &str) -> Result<PathBuf> {
-        Ok(self.path_to_file(path)?.with_extension("meta"))
+        Ok(self.relative_path(path)?.with_extension("meta"))
+    }
+
+    /// Read a file inside the base directory; `None` if it doesn't exist.
+    fn read_file(&self, rel: &Path) -> Result<Option<String>> {
+        match self.dir.read_to_string(rel) {
+            Ok(content) => Ok(Some(content)),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e)
+                .with_context(|| format!("Failed to read {:?} inside {:?}", rel, self.base_dir)),
+        }
     }
 
     /// Parse a key:value line from the secret file
@@ -112,18 +133,28 @@ impl FileBackend {
         format!("{}:{}\n", key, value)
     }
 
-    /// Ensure parent directories exist for a path
-    fn ensure_parent_dir(&self, file_path: &Path) -> Result<()> {
-        if let Some(parent) = file_path.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("Failed to create parent directory: {:?}", parent))?;
-            // Restrict directory to owner only on Unix
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                fs::set_permissions(parent, fs::Permissions::from_mode(0o700))
-                    .with_context(|| format!("Failed to set permissions on {:?}", parent))?;
-            }
+    /// Ensure parent directories exist for a path, owner-only on Unix
+    fn ensure_parent_dir(&self, rel: &Path) -> Result<()> {
+        let Some(parent) = rel.parent().filter(|p| !p.as_os_str().is_empty()) else {
+            return Ok(());
+        };
+        let mut builder = cap_std::fs::DirBuilder::new();
+        builder.recursive(true);
+        #[cfg(unix)]
+        cap_std::fs::DirBuilderExt::mode(&mut builder, 0o700);
+        self.dir
+            .create_dir_with(parent, &builder)
+            .with_context(|| format!("Failed to create parent directory: {:?}", parent))?;
+        // A directory that already existed keeps its mode unless tightened here.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            self.dir
+                .set_permissions(
+                    parent,
+                    cap_std::fs::Permissions::from_std(fs::Permissions::from_mode(0o700)),
+                )
+                .with_context(|| format!("Failed to set permissions on {:?}", parent))?;
         }
         Ok(())
     }
@@ -134,42 +165,44 @@ impl FileBackend {
     /// created with mode 0o600, then renamed over the target. The secret is
     /// therefore never in a file other users can read, not even briefly, and
     /// a crash mid-write leaves the old secret intact rather than half a file.
-    fn write_restricted(path: &Path, content: &str) -> Result<()> {
+    fn write_restricted(&self, rel: &Path, content: &str) -> Result<()> {
         use std::io::Write;
 
-        let file_name = path
+        let file_name = rel
             .file_name()
-            .with_context(|| format!("Invalid secret file path: {:?}", path))?
+            .with_context(|| format!("Invalid secret file path: {:?}", rel))?
             .to_string_lossy();
-        let tmp_path = path.with_file_name(format!(
+        let tmp = rel.with_file_name(format!(
             ".{}.tmp-{}-{}",
             file_name,
             std::process::id(),
             rand::random::<u32>()
         ));
 
-        let mut options = fs::OpenOptions::new();
+        let mut options = cap_std::fs::OpenOptions::new();
         options.write(true).create_new(true);
         #[cfg(unix)]
-        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+        cap_std::fs::OpenOptionsExt::mode(&mut options, 0o600);
 
-        let result = options
-            .open(&tmp_path)
+        let result = self
+            .dir
+            .open_with(&tmp, &options)
             .and_then(|mut f| {
                 f.write_all(content.as_bytes())?;
                 f.sync_all()
             })
-            .and_then(|()| fs::rename(&tmp_path, path));
+            .and_then(|()| self.dir.rename(&tmp, &self.dir, rel));
         if let Err(e) = result {
-            let _ = fs::remove_file(&tmp_path);
-            return Err(e).with_context(|| format!("Failed to write file: {:?}", path));
+            let _ = self.dir.remove_file(&tmp);
+            return Err(e)
+                .with_context(|| format!("Failed to write {:?} inside {:?}", rel, self.base_dir));
         }
 
         #[cfg(windows)]
         tracing::warn!(
             "File {:?} was written but Windows ACLs were not set — \
              protect it with folder-level permissions manually.",
-            path
+            rel
         );
 
         Ok(())
@@ -181,14 +214,10 @@ impl SecretBackend for FileBackend {
     async fn read_secret(&self, path: &str) -> Result<SecretData> {
         debug!("Reading secret from file: {}", path);
 
-        let file_path = self.path_to_file(path)?;
-
-        if !file_path.exists() {
-            anyhow::bail!("Secret file not found: {:?}", file_path);
-        }
-
-        let content = fs::read_to_string(&file_path)
-            .with_context(|| format!("Failed to read secret file: {:?}", file_path))?;
+        let rel = self.relative_path(path)?;
+        let content = self
+            .read_file(&rel)?
+            .with_context(|| format!("Secret file not found: {:?}", self.base_dir.join(&rel)))?;
 
         let mut data = HashMap::new();
         for line in content.lines() {
@@ -206,8 +235,8 @@ impl SecretBackend for FileBackend {
     async fn write_secret(&self, path: &str, data: HashMap<String, String>) -> Result<()> {
         info!("Writing secret to file: {}", path);
 
-        let file_path = self.path_to_file(path)?;
-        self.ensure_parent_dir(&file_path)?;
+        let rel = self.relative_path(path)?;
+        self.ensure_parent_dir(&rel)?;
 
         let mut content = String::new();
         content.push_str("# Secret file - Auto-generated by asr\n");
@@ -217,9 +246,9 @@ impl SecretBackend for FileBackend {
             content.push_str(&Self::format_line(key, value));
         }
 
-        Self::write_restricted(&file_path, &content)?;
+        self.write_restricted(&rel, &content)?;
 
-        debug!("Successfully wrote secret to: {:?}", file_path);
+        debug!("Successfully wrote secret to: {:?}", rel);
         Ok(())
     }
 
@@ -237,23 +266,19 @@ impl SecretBackend for FileBackend {
             content.push_str(&Self::format_line(key, value));
         }
 
-        Self::write_restricted(&meta_path, &content)?;
+        self.write_restricted(&meta_path, &content)?;
 
         Ok(())
     }
 
     async fn read_metadata(&self, path: &str) -> Result<HashMap<String, String>> {
-        let mut meta_path = self.metadata_path(path)?;
-        if !meta_path.exists() {
-            meta_path = self.legacy_metadata_path(path)?;
-        }
-
-        if !meta_path.exists() {
-            return Ok(HashMap::new());
-        }
-
-        let content = fs::read_to_string(&meta_path)
-            .with_context(|| format!("Failed to read metadata file: {:?}", meta_path))?;
+        let content = match self.read_file(&self.metadata_path(path)?)? {
+            Some(content) => content,
+            None => match self.read_file(&self.legacy_metadata_path(path)?)? {
+                Some(content) => content,
+                None => return Ok(HashMap::new()),
+            },
+        };
 
         let mut metadata = HashMap::new();
         for line in content.lines() {
@@ -268,61 +293,72 @@ impl SecretBackend for FileBackend {
     async fn list_secrets(&self, path: &str) -> Result<Vec<String>> {
         debug!("Listing secrets at path: {}", path);
 
-        let dir_path = if path.is_empty() {
-            self.base_dir.clone()
+        let rel = if path.is_empty() {
+            PathBuf::from(".")
         } else {
-            self.path_to_file(path)?
+            self.relative_path(path)?
         };
 
-        if !dir_path.exists() {
-            return Ok(Vec::new());
+        let meta = match self.dir.metadata(&rel) {
+            Ok(meta) => meta,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => {
+                return Err(e).with_context(|| {
+                    format!("Failed to stat {:?} inside {:?}", rel, self.base_dir)
+                })
+            }
+        };
+
+        // If it's a file, return just that file
+        if !meta.is_dir() {
+            return Ok(vec![rel
+                .to_string_lossy()
+                .replace(std::path::MAIN_SEPARATOR, "/")]);
         }
 
+        let entries = self
+            .dir
+            .read_dir(&rel)
+            .with_context(|| format!("Failed to read directory: {:?}", rel))?;
+
         let mut secrets = Vec::new();
+        for entry in entries {
+            let entry = entry.context("Failed to read directory entry")?;
+            let name = entry.file_name().to_string_lossy().to_string();
 
-        // If it's a directory, list files in it
-        if dir_path.is_dir() {
-            let entries = fs::read_dir(&dir_path)
-                .with_context(|| format!("Failed to read directory: {:?}", dir_path))?;
-
-            for entry in entries {
-                let entry = entry.context("Failed to read directory entry")?;
-                let file_path = entry.path();
-
-                // Skip metadata files and hidden files
-                if file_path.extension().map(|e| e == "meta").unwrap_or(false) {
-                    continue;
-                }
-
-                if file_path.is_file() {
-                    // Strip dir_path (not base_dir) so callers receive names relative to the
-                    // queried prefix — matches Vault's LIST behaviour and prevents scan_for_rotation
-                    // from double-prefixing paths when called with a non-empty root.
-                    if let Ok(relative) = file_path.strip_prefix(&dir_path) {
-                        let secret_path = relative
-                            .to_string_lossy()
-                            .replace(std::path::MAIN_SEPARATOR, "/");
-                        secrets.push(secret_path);
-                    }
-                } else if file_path.is_dir() {
-                    // Recursively list secrets in subdirectories
-                    let sub_name = file_path.file_name().unwrap().to_string_lossy().to_string();
-                    let sub_path = if path.is_empty() {
-                        sub_name.clone()
-                    } else {
-                        format!("{}/{}", path, sub_name)
-                    };
-
-                    let sub_secrets = self.list_secrets(&sub_path).await?;
-                    for s in sub_secrets {
-                        secrets.push(format!("{}/{}", sub_name, s));
-                    }
-                }
+            // Skip metadata files and in-progress temporary files
+            if name.ends_with(".meta") || (name.starts_with('.') && name.contains(".tmp-")) {
+                continue;
             }
-        } else {
-            // If it's a file, return just that file
-            if let Ok(relative) = dir_path.strip_prefix(&self.base_dir) {
-                secrets.push(relative.to_string_lossy().to_string());
+
+            // Follows symlinks only while they stay inside the base directory;
+            // one pointing outside is skipped rather than listed.
+            let child = rel.join(&name);
+            let Ok(child_meta) = self.dir.metadata(&child) else {
+                debug!(
+                    "Skipping {:?}: not reachable inside {:?}",
+                    child, self.base_dir
+                );
+                continue;
+            };
+
+            if child_meta.is_file() {
+                // Names are relative to the queried prefix — matches Vault's LIST
+                // behaviour and prevents scan_for_rotation from double-prefixing
+                // paths when called with a non-empty root.
+                secrets.push(name);
+            } else if child_meta.is_dir() {
+                // Recursively list secrets in subdirectories
+                let sub_path = if path.is_empty() {
+                    name.clone()
+                } else {
+                    format!("{}/{}", path, name)
+                };
+
+                let sub_secrets = self.list_secrets(&sub_path).await?;
+                for s in sub_secrets {
+                    secrets.push(format!("{}/{}", name, s));
+                }
             }
         }
 

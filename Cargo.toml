@@ -88,6 +88,9 @@ postgres-protocol = "0.6"
 percent-encoding = "2"
 # Already in the tree via reqwest; named directly to match on url::Host
 url = "2"
+# Directory-relative file access for the file backend: no path, `..` or
+# symlink can resolve outside the secrets directory, even if swapped mid-call
+cap-std = "4"
 
 # Optional: Kubernetes / OpenShift backend
 kube = { version = "4", features = ["runtime", "derive"], optional = true }

@@ -228,7 +228,7 @@ See [`examples/ocp-rbac.yaml`](examples/ocp-rbac.yaml) for a complete `Role`, `R
 
 - Store backend credentials in CI secrets or Vault — never commit them
 - Endpoints that carry credentials or secrets (Vault, Azure Key Vault, the API, GitLab and GitHub targets, the webhook) must use `https://`. Plain `http://` is accepted only for `localhost` / `127.0.0.0/8` / `::1`, unless `ASR_ALLOW_INSECURE_HTTP=1` is set for a trusted private network
-- The `file` backend keeps every secret inside its `directory`: absolute paths and `..` are refused, and files are written atomically with mode 0600
+- The `file` backend keeps every secret inside its `directory`: absolute paths, `..` and symlinks that lead outside it are refused (symlinks that stay inside still work), and files are written atomically with mode 0600
 - `rotate` and `read` commands display secret values — use only in secure environments and clear terminal history afterwards
 - `auto` never displays secret values
 
